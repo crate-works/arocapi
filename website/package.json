@@ -10,16 +10,16 @@
   "dependencies": {
     "@astrojs/starlight": "^0.42.6",
     "arocapi": "workspace:*",
-    "astro": "^7.3.8",
+    "astro": "^7.4.0",
     "astro-mermaid": "^2.1.0",
-    "mermaid": "^11.17.2",
+    "mermaid": "^12.2.0",
     "starlight-links-validator": "^0.27.0"
   },
   "devDependencies": {
     "@opensearch-project/opensearch": "^3.9.0",
-    "@prisma/adapter-mariadb": "^7.10.0",
+    "@prisma/adapter-mariadb": "^7.10.1",
     "@types/node": "^26.6.5",
     "fastify": "^5.12.7",
-    "happy-dom": "^21.0.1"
+    "happy-dom": "^21.0.3"
   }
 }
