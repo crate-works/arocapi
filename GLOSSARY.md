@@ -39,3 +39,14 @@ accessible.
 accessible to it. It gets a 401 if the request is anonymous and a 403
 otherwise, never 404, because the entity is visible. _Avoid_: restricted,
 hidden.
+
+## How it is found
+
+**Search document**: The values the consumer supplies for one entity so search
+can find it. Search never takes values from the Record or Metadata itself.
+_Avoid_: index document, search record.
+
+**Search field**: A named, typed value in a search document, declared with the
+jobs it does: basic search, advanced queries, filtering, faceting or sorting. A
+search field with no job is never published and only helps decide visibility.
+_Avoid_: index field, property.
