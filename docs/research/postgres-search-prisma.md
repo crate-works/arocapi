@@ -228,6 +228,95 @@ Build the Postgres reference backend on `$queryRaw` + `Prisma.sql`, not Prisma's
 5. Before committing to the design, run a spike on a Pi against a realistic catalogue to measure the
    empty-query/broad-query worst case for exact total + facets.
 
+## Addendum: prototype checks and measurements
+
+A throwaway prototype (not committed) linked arocapi's `prisma/models` into a `provider = "postgresql"` schema and ran
+it with Prisma 7.10.1 and `@prisma/adapter-pg` against `postgres:18-alpine`. These results are first-hand, not taken
+from a source.
+
+### Schema and migrations
+
+- `prisma migrate dev` on the unchanged models emits valid Postgres DDL: `VARCHAR(768)`, `TEXT`, `JSONB`,
+  `TIMESTAMP(3)`, b-tree indexes, the `file`→`entity` FK. This confirms section 5.
+- `searchVector Unsupported("tsvector")?` with `@@index([searchVector], type: Gin)` generates
+  `ADD COLUMN "searchVector" tsvector` and `CREATE INDEX … USING GIN ("searchVector")`. The field is absent from the
+  generated client, and `prisma.entity.create()` still works.
+- **A stored generated column can be kept drift-free.** It needs `@default(dbgenerated())` on the field. I edited the
+  `--create-only` migration to `tsvector GENERATED ALWAYS AS (setweight(to_tsvector('simple'::regconfig, …), 'A') ||
+  …) STORED` and applied it. With the bare `Unsupported("tsvector")?` declaration, `prisma migrate diff
+  --from-config-datasource --to-schema prisma` then emits `ALTER COLUMN "searchVector" DROP DEFAULT`, which is the
+  #24496 failure. With `@default(dbgenerated())` added, the diff is empty and the next `migrate dev --create-only` is
+  an empty migration. So the generated column is an option after all, but it still needs hand-written SQL in a
+  consumer migration. The plain, backend-filled column needs none, so it remains the better default.
+- PostgreSQL 18 makes generated columns **virtual by default**, and `CREATE INDEX … USING gin` on a virtual one fails
+  with "indexes on virtual generated columns are not supported". The keyword `STORED` is mandatory.
+- `@@index([geohash(ops: raw("text_pattern_ops"))])` makes every diff drop and re-create the index. Avoid `raw()` ops.
+  The geohash grid doesn't need them anyway, because `GROUP BY left(geohash, p)` runs over rows already matched.
+- `extensions = [postgis]` on the datasource still fails validation in 7.10.1 unless the `postgresqlExtensions`
+  preview flag is set.
+- B-tree limit confirmed. An id of 768 random 4-byte characters fails with "Values larger than 1/3 of a buffer page
+  cannot be indexed". 768 3-byte (CJK) characters fit.
+
+### Raw query behaviour
+
+- Composing `Prisma.sql` fragments with `Prisma.join(conditions, ' AND ')` and facet values via
+  `IN (${Prisma.join(values)})` parameterised everything, including hostile input such as
+  `x'); DROP TABLE entity; --` and `' OR 1=1`. `LIMIT`/`OFFSET` also bind as parameters.
+- `count(*) OVER ()` returns `bigint` and `ts_rank` returns `number`.
+- Selecting the `tsvector` column in `$queryRaw` fails ("Failed to deserialize column of type 'tsvector'"). Never
+  select it, or cast it to text.
+- `websearch_to_tsquery('simple', '"tok pisin" -song or dance')` gives `'tok' <-> 'pisin' & !'song' | 'dance'`.
+  Junk such as `a & | ! ( : bad` gives `'a' & 'bad'` without an error.
+- `ts_headline` highlights negated terms. A query containing `-"tok pisin"` still wrapped "Tok" in `<b>`.
+
+### Consumer-visible portability gap
+
+`Json` path filters differ by provider. MySQL takes `path: '$.draft'` (a string) and PostgreSQL takes
+`path: ['draft']` (an array). arocapi's own examples (`website/examples/reference/entity-meta-draft.ts`,
+`website/examples/concepts/visibility-vs-access-guards.ts`) and `src/test/integration.test.ts` use the MySQL form. An
+`entityVisibilityFilter` copied from the docs therefore won't run on Postgres. The docs need per-provider examples,
+and the library needs a Postgres CI run, because `pnpm lint`/`pnpm test` currently generate the client for MySQL
+only.
+
+### Timings
+
+Setup: 200,000 entities with 4-word names and 60-word descriptions. There were 1,000,000 facet rows in an
+`entity_facet(entityId, field, value)` table with PK `(field, value, entityId)` plus an `entityId` index, and lat/lng
+with a b-tree index. The container was limited to `--cpus 1 --memory 1g`, with `shared_buffers=256MB` and
+`work_mem=16MB`, on a Ryzen 9 7950X. The vocabulary is only 36 words, so the "broad" query matches 75% of the
+catalogue. That is a deliberate worst case.
+
+| Query | Matches | Time |
+| --- | --- | --- |
+| Broad term: rank, top 100, exact `total` via `count(*) OVER ()` | 151k | 359 ms |
+| Selective term (1%): same | 2k | 3 ms |
+| No term, one facet filter (`EXISTS` on facet table), sort by name, `total` | 2.4k | 55 ms |
+| Facet counts, 3 fields, broad term | 151k | 457 ms |
+| Facet counts, 3 fields, no term (match all visible) | 180k | 421 ms |
+| Geohash grid (`left(geohash, 3)`), bbox + broad term | 28k | 134 ms |
+| Broad term top 100 + `ts_headline` on name and description of the page | 151k | 244 ms |
+| Broad term, `OFFSET 10000` | 151k | 309 ms |
+
+- Selective queries are trivially fast: the GIN index works and the costs scale with matches. Broad queries
+  sequential-scan, and each of total, rank, facets and grid is one pass over the matches. A full broad response,
+  meaning page + total + facets + grid, took about 1 s here.
+- My estimate, not measured: a Pi 4 core is about 3–5× slower than a Zen 4 core, and a Pi 5 about 2×. That would
+  make a broad response roughly 2–5 s at 200k entities, and well under 1 s at tens of thousands. Selective queries
+  stay in single-digit to tens of milliseconds. A real Pi run is still needed (step 5 above).
+- `ts_headline` added about 40 ms for 100 rows, so limiting it to the page is enough.
+- Storage: the `entity` table plus the tsvector and indexes came to 460 MB, and the GIN index alone to 11 MB (it is
+  small only because the vocabulary is). The facet table came to 290 MB, because the 768-character `entityId` is
+  repeated in the PK and the secondary index. A search table with an integer surrogate key referenced by the facet
+  rows would shrink this substantially. That matters on a Pi SD card or SSD.
+- Building and indexing 200k rows took 54 s.
+
+### Pi packaging
+
+The official `postgis/postgis` Docker image is amd64 only, according to its README ("Supported architecture: `amd64`
+(x86-64)", <https://github.com/postgis/docker-postgis>). Debian trixie packages `postgresql-17-postgis-3` 3.5.2 for
+arm64 (<https://packages.debian.org/trixie/postgresql-17-postgis-3>). That is one more reason for the reference
+backend to avoid PostGIS.
+
 [prisma-fts]: https://www.prisma.io/docs/orm/prisma-client/queries/full-text-search
 [prisma-fts-v6]: https://www.prisma.io/docs/orm/v6/prisma-client/queries/full-text-search
 [prisma-unsupported]: https://www.prisma.io/docs/orm/prisma-schema/data-model/unsupported-database-features
