@@ -108,6 +108,10 @@ const app: FastifyPluginAsync<Options> = async (fastify, options) => {
     throw new Error('Prisma client is required');
   }
 
+  if (typeof prisma.entity?.findMany !== 'function' || typeof prisma.file?.findMany !== 'function') {
+    throw new Error('prisma must be a Prisma 7 client generated from a schema that includes the arocapi models');
+  }
+
   if (!opensearch) {
     throw new Error('OpenSearch client is required');
   }

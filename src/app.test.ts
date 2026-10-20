@@ -60,6 +60,20 @@ describe('Entity Route', () => {
       );
     });
 
+    it.each([
+      ['an object without the arocapi models', { $connect: vi.fn() }],
+      ['a Prisma 8 client', { orm: { public: { Entity: {} } }, raw: {} }],
+      ['a client missing the file model', { entity: { findMany: vi.fn() } }],
+    ])('should reject %s as prisma', async (_label, client) => {
+      const fastify = Fastify({ logger: false });
+
+      fastify.register(app, { ...requiredOptions(), prisma: client as unknown as Options['prisma'] });
+
+      await expect(() => fastify.ready()).rejects.toThrowError(
+        'prisma must be a Prisma 7 client generated from a schema that includes the arocapi models',
+      );
+    });
+
     it('should reject promptLoginForHidden without isAuthenticated', async () => {
       const fastify = Fastify({ logger: false });
 
