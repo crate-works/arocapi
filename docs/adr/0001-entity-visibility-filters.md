@@ -22,19 +22,21 @@ which come from the database and the search backend.
   (what can this request do with a visible entity?) are separate layers.
   Visibility runs first; the access and entity transformer pipeline runs
   unchanged on visible entities.
-- Visibility is applied inside the queries. Consumers supply a required
-  `entityVisibilityFilter`, which returns a Prisma `where` condition, and give
-  their search backend its own visibility filter in the backend's query
-  language: an OpenSearch query for `OpenSearchBackend`, a SQL fragment for
-  the Postgres backend (ADR 0003). The two are deliberately separate, with no
-  shared rule language: consumers own both the database and the search
-  documents, and keeping the filters in agreement is their responsibility.
-- The search backend enforces search visibility. It must apply its filter to
-  the hits, the total and the facets, so facets only count visible entities.
-  Loading hits from the database applies the entity filter too, so a mismatch
-  gives a short page rather than a leak.
-- `entityVisibilityFilter` has no default. Public repositories opt in
-  explicitly with `AllVisibleEntityFilter`.
+- Visibility is applied inside the queries. Consumers supply two required
+  filters: `entityVisibilityFilter`, which returns a Prisma `where` over
+  `Entity`'s columns and `meta`, and `searchVisibilityFilter`, which returns
+  a filter over the search document's declared fields in one language shared
+  by every search backend (ADR 0003). The two are deliberately separate, with
+  no rule language spanning both: consumers own both the database and the
+  search documents, and keeping the filters in agreement is their
+  responsibility.
+- The search backend enforces search visibility. arocapi passes it the
+  search visibility filter, which it must apply to the hits, the total and
+  the facets, so facets only count visible entities. Loading hits from the
+  database applies the entity filter too, so a mismatch gives a short page
+  rather than a leak.
+- Neither filter has a default. Public repositories opt in explicitly with
+  `AllVisibleEntityFilter` and `AllVisibleSearchFilter`.
 - Direct requests for a hidden entity get a 404, the same as a missing entity.
   With `promptLoginForHidden`, an anonymous request (per the consumer's
   `isAuthenticated`) for a hidden entity gets a 401 so the client can prompt a

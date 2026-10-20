@@ -56,3 +56,13 @@ search record.
 holds: its type and its roles in basic search, advanced search, filters,
 facets and sorting. A field with no role serves only visibility.
 _Avoid_: mapping, schema, index field.
+
+**Role**: A use a field declaration opts a field into: `basic`, `advanced`,
+`filter`, `facet` or `sort`. Roles decide what `/capabilities` publishes.
+_Avoid_: capability, flag.
+
+**Search visibility filter**: The consumer's rule for which search documents
+are visible to a request, written over `id` and declared fields in one
+language every search backend applies. Separate from the entity visibility
+filter, a Prisma `where` over the database. _Avoid_: search query, access
+filter.

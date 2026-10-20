@@ -38,9 +38,8 @@ itself honestly.
 - A search backend is a plain object satisfying the exported `SearchBackend`
   interface: `capabilities`, `search(request, context)`, `index(docs, options?)`
   and `remove(ids)`. A required `search` option takes it. The `opensearch`,
-  `queryBuilderClass`, `queryBuilderOptions` and `searchVisibilityFilter`
-  options and the `OpensearchQueryBuilder` and `AllVisibleSearchFilter`
-  exports are removed.
+  `queryBuilderClass` and `queryBuilderOptions` options and the
+  `OpensearchQueryBuilder` export are removed.
 - Reference backends are exported factories, `OpenSearchBackend({...})` and
   `PostgresBackend({...})`, like `LicenceAccess`. They are customised through
   options only, with no subclassing or protected hooks, so their internals can
@@ -57,8 +56,8 @@ itself honestly.
   bounds to UTC instants and handles paging.
 - The backend searches and returns ordered hit ids with the spec's
   `searchExtra`, an exact `total`, and spec-shaped `facets` and `geohashGrid`.
-  It applies visibility itself, in its own query language, to the hits, the
-  total and the facets (ADR 0001).
+  It applies the request's `visibility` to the hits, the total and the facets
+  (ADR 0001).
 - arocapi then loads the Records from the database, re-applying
   `entityVisibilityFilter` and dropping any hit it can't load, decides access,
   runs the transformers and times `searchTime` around the call.
@@ -75,7 +74,7 @@ itself honestly.
 - Every `text` field is in basic search unless `basic: false`, with a
   `weight` of 1–4 (default 1). The other roles are opt-in, so no field is
   searchable in an advanced query unless declared. A field with no role is
-  stored only for the backend's visibility filter and is never published.
+  stored only for the search visibility filter and is never published.
 - The filter, facet and sort key is always the field name. Exact forms such
   as `.keyword` are private to the backend.
 - The contract's `capabilities` is shaped like `/capabilities` (`filters`,
@@ -92,6 +91,43 @@ itself honestly.
   count, then name. Every declared facet is present in every response.
 - Field names match `^[A-Za-z_][A-Za-z0-9_]*$`; `id` is reserved and
   `relevance` can't be a sort field. The factories throw on a bad declaration.
+
+### Search visibility
+
+- `searchVisibilityFilter(context)` is a required top-level option beside
+  `entityVisibilityFilter`. It returns, or resolves to, a filter over `id`
+  and the declared fields, typed from the backend's field declarations, so an
+  unknown field or a wrong value type fails to compile. arocapi calls it on
+  every search and passes the result to the backend as `request.visibility`.
+  Backends never call consumer code.
+- A field condition is a value (shorthand for `equals`) or an object of
+  `equals`, `not`, `in` and `notIn`, on every type but `geo`, plus `lt`,
+  `lte`, `gt` and `gte` on `date` and `number`. A `text` field compares its
+  exact form. `AND`, `OR` and `NOT` take arrays of filters, and several keys
+  in one object mean `AND`.
+- A field matches when any of its values matches. `not` and `notIn` match
+  when no value matches, including when the field is missing. `null` matches
+  a missing value and `{ not: null }` a present one, unlike Prisma's SQL
+  nulls.
+- Public repositories opt in explicitly with `AllVisibleSearchFilter`, which
+  returns `{}`.
+- The backend checks the filter on every search, since only it knows the
+  fields with no role. On an undeclared field, an operator that doesn't fit
+  the field's type or a bad value, it throws a plain `Error` naming the
+  field, and arocapi answers 500 and logs it. Custom backends must do the
+  same, and the shared contract tests cover the language in both reference
+  backends.
+
+```ts
+searchVisibilityFilter: async ({ request }) => {
+  const hidden = await hiddenCollections(request);
+  return {
+    draft: { not: true },
+    id: { notIn: hidden },
+    rootCollection: { notIn: hidden },
+  };
+},
+```
 
 ### Queries
 
@@ -154,14 +190,18 @@ itself honestly.
 ## Consequences
 
 - Upgrading to 5.0 is a breaking change. Consumers replace the OpenSearch
-  options with a `search` backend, declare their fields, and move from MySQL
+  options with a `search` backend, declare their fields, rewrite
+  `searchVisibilityFilter` in the shared filter language, and move from MySQL
   to Postgres. MySQL users stay on 4.x.
 - Consumers write their own search documents and call `index` and `remove`
   until a deposit API calls them. Any field a visibility rule uses must be
   declared and included in the documents.
-- Search results depend on both the backend's visibility filter and
+- Search results depend on both `searchVisibilityFilter` and
   `entityVisibilityFilter`; keeping them in agreement is the consumer's job,
   and a mismatch gives a short page, not a leak.
+- A search visibility filter carries over unchanged when switching backends.
+- An invalid search visibility filter fails closed, as a 500 on every search,
+  rather than at startup.
 - Customising search beyond the factory options means writing a backend.
 - Every consumer carries the `EntitySearch` table; with `OpenSearchBackend`
   it stays empty.
