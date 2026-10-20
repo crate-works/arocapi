@@ -82,6 +82,9 @@ jobs:
       - name: Lint (examples)
         run: pnpm run lint:examples
 
+      - name: Lint (consumer types)
+        run: pnpm run lint:consumer
+
       - name: Run unit tests
         run: pnpm run test:ci
         env:

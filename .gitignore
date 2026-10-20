@@ -21,3 +21,6 @@ coverage
 
 # Claude Code
 .claude/worktrees/
+
+# consumer type check
+test/consumer/src/generated/

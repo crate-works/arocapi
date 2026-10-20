@@ -6,7 +6,7 @@ arocapi is a **published npm library** (not a standalone app). It provides an RO
 
 ## Commands
 
-- `pnpm lint` — generate the Prisma client, then run biome, type checking, the docs examples type check (`website/examples/`) and knip in parallel
+- `pnpm lint` — generate the Prisma client, then run biome, type checking, the docs examples type check (`website/examples/`), the consumer type check (`test/consumer/` against a packed tarball, via `scripts/check-consumer-types.sh`) and knip in parallel
 - `pnpm test` — start test containers (docker-compose.test.yml), apply migrations, then run all tests with coverage. Concurrent runs across checkouts are serialised by a lock
 - `pnpm test:ci` — run tests without starting containers (CI provides its own services)
 - `pnpm test <file>` — run a single test file, e.g. `pnpm run test src/routes/entity.test.ts`

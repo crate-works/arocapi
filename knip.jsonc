@@ -2,7 +2,8 @@
   "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
   "workspaces": {
     ".": {
-      "ignore": ["src/index.dev.ts", "scripts/loadEntities.ts"],
+      // test/consumer is type-checked against the packed tarball by scripts/check-consumer-types.sh
+      "ignore": ["src/index.dev.ts", "scripts/loadEntities.ts", "test/consumer/**"],
       "ignoreDependencies": [
         // Needed by @semantic-release based on our config
         "conventional-changelog-conventionalcommits",

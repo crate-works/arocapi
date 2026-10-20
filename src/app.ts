@@ -72,8 +72,17 @@ const REMOVED_OPTIONS: Record<string, { replacement: string; docs: string }> = {
   },
 };
 
+type PrismaMethod = (args: never) => PromiseLike<unknown>;
+type PrismaDelegate = Record<'findMany' | 'findFirst' | 'count', PrismaMethod>;
+
+/**
+ * The Prisma client arocapi needs: any Prisma 7 client generated from a schema that includes the arocapi models,
+ * including one with extra models, a `$extends` client or the client inside `$transaction`
+ */
+export type ArocapiPrismaClient = { entity: PrismaDelegate; file: PrismaDelegate };
+
 export type Options = {
-  prisma: PrismaClient;
+  prisma: ArocapiPrismaClient;
   opensearch: Client;
   queryBuilderClass?: typeof OpensearchQueryBuilder;
   queryBuilderOptions?: QueryBuilderOptions;
@@ -89,7 +98,6 @@ export type Options = {
 };
 const app: FastifyPluginAsync<Options> = async (fastify, options) => {
   const {
-    prisma,
     opensearch,
     queryBuilderClass,
     queryBuilderOptions,
@@ -104,13 +112,16 @@ const app: FastifyPluginAsync<Options> = async (fastify, options) => {
     promptLoginForHidden = false,
   } = options;
 
-  if (!prisma) {
+  if (!options.prisma) {
     throw new Error('Prisma client is required');
   }
 
-  if (typeof prisma.entity?.findMany !== 'function' || typeof prisma.file?.findMany !== 'function') {
+  if (typeof options.prisma.entity?.findMany !== 'function' || typeof options.prisma.file?.findMany !== 'function') {
     throw new Error('prisma must be a Prisma 7 client generated from a schema that includes the arocapi models');
   }
+
+  // Consumers generate their own client, whose delegate generics never match ours; the routes need the full type
+  const prisma = options.prisma as PrismaClient;
 
   if (!opensearch) {
     throw new Error('OpenSearch client is required');

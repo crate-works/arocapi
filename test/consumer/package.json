@@ -1,0 +1,5 @@
+{
+  "name": "arocapi-consumer",
+  "private": true,
+  "type": "module"
+}

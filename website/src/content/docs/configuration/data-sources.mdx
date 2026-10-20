@@ -11,18 +11,21 @@ import dataSourcesClients from '@examples/configuration/data-sources-clients.ts?
 arocapi reads Records from your database through Prisma and searches them through OpenSearch. You create both clients
 and pass them in.
 
-| Option       | Required | Type           | Default | Purpose                                     |
-| ------------ | -------- | -------------- | ------- | ------------------------------------------- |
-| `prisma`     | yes      | `PrismaClient` | none    | Database client for entities and files.     |
-| `opensearch` | yes      | `Client`       | none    | OpenSearch client used by `POST /search`.   |
+| Option       | Required | Type                  | Default | Purpose                                     |
+| ------------ | -------- | --------------------- | ------- | ------------------------------------------- |
+| `prisma`     | yes      | `ArocapiPrismaClient` | none    | Database client for entities and files.     |
+| `opensearch` | yes      | `Client`              | none    | OpenSearch client used by `POST /search`.   |
 
 <Code code={dataSourcesClients} lang="ts" />
 
 ## `prisma`
 
-A `PrismaClient` generated from arocapi's `Entity` and `File` models; [Database](/getting-started/database/) shows how
-to link the models and generate it. arocapi uses it for every route: listings,
-single entities, metadata and files. Registration throws `Prisma client is required` without it.
+A Prisma 7 client generated from a schema that includes arocapi's `Entity` and `File` models;
+[Database](/getting-started/database/) shows how to link the models and generate it. Your schema can have other models
+too, and a `$extends` client or the client inside `$transaction` also qualifies. `ArocapiPrismaClient` names the shape
+arocapi needs. arocapi uses it for every route: listings, single entities, metadata and files. Registration throws
+`Prisma client is required` without it, and `prisma must be a Prisma 7 client generated from a schema that includes the
+arocapi models` for anything else.
 
 Your handlers and visibility filter work with the same models, including the free-form `meta` column described in
 [Entity meta](/reference/entity-meta/).
