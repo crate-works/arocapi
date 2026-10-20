@@ -15,11 +15,12 @@ import {
   capabilitiesFromFields,
   type FieldDeclaration,
   type FieldDeclarations,
-  isFilter,
   type SearchDocument,
   storeDocuments,
 } from './fields.js';
 import { advancedQueryFor } from './opensearchAdvanced.js';
+import { visibilityQuery } from './opensearchVisibility.js';
+import { checkSearchVisibility } from './visibility.js';
 
 export type OpenSearchBackendOptions<Fields extends FieldDeclarations> = {
   client: Client;
@@ -35,7 +36,7 @@ const mappingFor = (declaration: FieldDeclaration) => {
   const { type } = declaration;
   switch (type) {
     case 'text':
-      return declaration.sort || isFilter(declaration) ? { type, fields: EXACT_FORM } : { type };
+      return { type, fields: EXACT_FORM };
     case 'number':
       return { type: 'double' };
     case 'geo':
@@ -78,7 +79,7 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
   const declared = Object.entries(fields);
   const geoField = declared.find(([, { type }]) => type === 'geo')?.[0];
 
-  const exactField = (name: string) => (fields[name].type === 'text' ? `${name}.exact` : name);
+  const exactField = (name: string) => (fields[name]?.type === 'text' ? `${name}.exact` : name);
   const isBasic = ({ type, basic }: FieldDeclaration) => (type === 'text' ? basic !== false : basic);
   const basicFields = declared
     .filter(([, declaration]) => isBasic(declaration))
@@ -174,7 +175,7 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
           },
         })),
         ...(geoField && boundingBox ? [{ geo_bounding_box: { [geoField]: geoBox(boundingBox) } }] : []),
-        request.visibility as QueryContainer,
+        visibilityQuery(checkSearchVisibility(fields, request.visibility), exactField),
       ];
       const geohashGrid: Search_RequestBody['aggs'] =
         geoField && geohashPrecision !== undefined

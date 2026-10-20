@@ -42,7 +42,7 @@ only and is never published or searchable. `geo` fields take no role, and at mos
 Filter, facet and sort keys are always the field name. A `text` field used as a filter, facet or sort is compared by
 its exact value; its words are only for basic search.
 
-Field names match `^[A-Za-z_][A-Za-z0-9_]*$`, and `id` is reserved. `relevance` is always a sort, so it can't be
+Field names match `^[A-Za-z_][A-Za-z0-9_]*$`, and `id`, `AND`, `OR` and `NOT` are reserved. `relevance` is always a sort, so it can't be
 declared as one. The factory throws, naming the field, on a declaration it can't hold.
 
 ### Search documents

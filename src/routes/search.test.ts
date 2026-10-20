@@ -6,6 +6,7 @@ import { fakeSearchBackend } from '../test/helpers/fakeSearchBackend.js';
 import { fastify, fastifyAfter, fastifyBefore, prisma } from '../test/helpers/fastify.js';
 import type { AuthorisedEntity } from '../transformers/default.js';
 import type { EntityTransformer } from '../types/transformers.js';
+import type { SearchVisibilityFilter } from '../types/visibility.js';
 import { AllPublicAccess } from '../utils/access.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
 import { AllVisibleEntityFilter, AllVisibleSearchFilter } from '../utils/visibility.js';
@@ -44,7 +45,7 @@ type Setup = {
   extraCapabilities?: Partial<BackendSearchCapability>;
   respond?: (request: SearchRequest) => SearchResult | Promise<SearchResult>;
   entityTransformers?: EntityTransformer[];
-  searchVisibilityFilter?: () => unknown;
+  searchVisibilityFilter?: SearchVisibilityFilter;
   entityVisibilityFilter?: () => object;
 };
 
@@ -68,8 +69,7 @@ const setup = async ({
     access: AllPublicAccess,
     entityTransformers,
     entityVisibilityFilter: entityVisibilityFilter ?? AllVisibleEntityFilter,
-    // biome-ignore lint/suspicious/noExplicitAny: the interim filter is any OpenSearch query
-    searchVisibilityFilter: (searchVisibilityFilter ?? AllVisibleSearchFilter) as any,
+    searchVisibilityFilter: searchVisibilityFilter ?? AllVisibleSearchFilter,
   });
 
   return fake;
@@ -98,13 +98,13 @@ describe('Search Route', () => {
           offset: 0,
           sort: 'relevance',
           order: 'asc',
-          visibility: { match_all: {} },
+          visibility: {},
         },
       ]);
     });
 
     it('carries exact-term filters, paging, a declared sort and the search visibility filter', async () => {
-      const visibility = { bool: { must_not: { term: { draft: true } } } };
+      const visibility = { draft: { not: true }, id: { notIn: ['http://example.com/entity/9'] } };
       const { requests } = await setup({ searchVisibilityFilter: async () => visibility });
 
       await search({

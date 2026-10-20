@@ -21,7 +21,8 @@ arocapi needs seven options:
 - `search`: the search backend from [the previous page](/getting-started/opensearch/)
   ([Search](/configuration/search/)).
 - `entityVisibilityFilter` and `searchVisibilityFilter`: which entities exist for a request, as a Prisma condition and
-  an OpenSearch query. Hidden entities never appear in any response ([Visibility](/configuration/visibility/)).
+  a condition over your declared search fields. Hidden entities never appear in any response
+  ([Visibility](/configuration/visibility/)).
 - `access`: whether a request may read a visible entity's full RO-Crate metadata and, for a file, its content
   ([Access](/configuration/access/)).
 - `fileHandler` and `roCrateHandler`: how to fetch a file's content and an entity's RO-Crate metadata from your

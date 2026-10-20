@@ -60,11 +60,7 @@ describe('OpenSearchBackend', () => {
     it('throws, naming the field, when a declaration changed', async () => {
       await OpenSearchBackend({ client, fields, indexName }).createIndex();
 
-      const changed = OpenSearchBackend({
-        client,
-        fields: { ...fields, name: { type: 'text', sort: true } },
-        indexName,
-      });
+      const changed = OpenSearchBackend({ client, fields: { ...fields, name: { type: 'keyword' } }, indexName });
 
       await expect(changed.createIndex()).rejects.toThrow(`Index "${indexName}"`);
       await expect(changed.createIndex()).rejects.toThrow('"name"');
@@ -127,7 +123,7 @@ describe('OpenSearchBackend', () => {
         offset: 0,
         sort: 'relevance',
         order: 'asc',
-        visibility: { match_all: {} },
+        visibility: {},
         ...overrides,
       }) as SearchRequest;
 

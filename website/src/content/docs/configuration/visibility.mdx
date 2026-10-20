@@ -16,7 +16,7 @@ including their totals and facets, and a direct request for it gets the same 404
 | Option                   | Required | Type                     | Default | Purpose                                                    |
 | ------------------------ | -------- | ------------------------ | ------- | ---------------------------------------------------------- |
 | `entityVisibilityFilter` | yes      | `EntityVisibilityFilter` | none    | Prisma condition matching the entities visible to a request. |
-| `searchVisibilityFilter` | yes      | `SearchVisibilityFilter` | none    | OpenSearch query matching the same entities.               |
+| `searchVisibilityFilter` | yes      | `SearchVisibilityFilter` | none    | Condition over the declared search fields matching the same entities. |
 | `promptLoginForHidden`   | no       | `boolean`                | `false` | Answer anonymous requests for Hidden entities with 401.    |
 
 Both filters receive the [request context](/configuration/transformers/#request-context) and may be async. They
@@ -30,9 +30,51 @@ Returns a Prisma `EntityWhereInput`. arocapi combines it with `AND` into every d
 
 ## `searchVisibilityFilter`
 
-Returns an OpenSearch query. `POST /search` passes it to the [search backend](/configuration/search/) as the
-request's `visibility`, and `OpenSearchBackend` adds it as a `bool` filter beside the query, so it applies to the hits,
-the total and the facets.
+Returns a `SearchVisibilityWhere`: a condition over `id` and the fields declared in your
+[search backend](/configuration/search/), in one language every backend applies, so it carries over unchanged when
+you switch backends. `POST /search` calls it on every search and passes the result to the backend as the request's
+`visibility`, and the backend applies it to the hits, the total and the facets. `OpenSearchBackend` translates it to a
+`bool` filter beside the query.
+
+Type it as `SearchVisibilityFilter<typeof fields>`, with `fields` your backend's declarations `as const`, so an
+undeclared field or a value of the wrong type fails to compile.
+
+### Conditions
+
+Each key is `id` or a declared field, including fields with no role, which are stored only for this filter. `geo`
+fields can't be used. Several keys in one object must all match.
+
+| Condition                    | Fields                   | Matches when                                    |
+| ---------------------------- | ------------------------ | ----------------------------------------------- |
+| a bare value, or `{ equals }` | every type but `geo`    | any value equals it                             |
+| `{ not }`                    | every type but `geo`     | no value equals it, including when there are none |
+| `{ in: [...] }`              | every type but `geo`     | any value is in the list; an empty list matches nothing |
+| `{ notIn: [...] }`           | every type but `geo`     | no value is in the list, including when there are none |
+| `{ lt, lte, gt, gte }`       | `date` and `number`      | any value is within every bound given           |
+| `null`, or `{ equals: null }` | every type but `geo`    | the field has no value                          |
+| `{ not: null }`              | every type but `geo`     | the field has a value                           |
+
+Operators in one condition must all match, so `{ gte: 5, not: 10 }` is a value from 5 that isn't 10. A `text` field
+compares its exact value, not its words. Date values are a `Date` or a `YYYY`, `YYYY-MM`, `YYYY-MM-DD` or RFC 3339
+string, read like the [dates in search documents](/configuration/search/#search-documents): a partial date is its
+first UTC instant, and a date-time with no offset is UTC.
+
+`AND`, `OR` and `NOT` combine filters, each taking an array of them. `AND` matches when every filter does, `OR` when
+any does (an empty `OR` matches nothing) and `NOT` when none does.
+
+### Semantics
+
+A field with several values matches when any of them does, and `not` and `notIn` match when none does. So
+`draft: { not: true }` keeps entities that have no `draft` value at all, where Prisma's `not` on a nullable column
+leaves out its nulls. `null` means the field has no value, not an SQL null.
+
+`AllVisibleSearchFilter` returns `{}`, which matches every entity.
+
+### Invalid filters
+
+The backend checks the filter on every search. An undeclared field, an operator that doesn't fit the field's type,
+such as `lt` on a `keyword`, or a bad value, such as a string for a `number`, fails the search with a 500
+`INTERNAL_ERROR`, so a mistake never shows hidden entities. The log has the error, naming the field.
 
 If the two filters disagree, search drops any hit the entity filter hides and logs a warning. The page can then be
 shorter than `limit`, and `total` still counts the dropped hits.
@@ -42,14 +84,14 @@ For a public repository, use the exported filters that make every entity visible
 <Code code={accessPublic} lang="ts" />
 
 To hide whole collections, such as ones withdrawn from publication, build both filters from the same list. `id` is
-always indexed, and `rootCollection` needs declaring as a `keyword` field, with no role, so `terms` matches them
-exactly:
+always indexed, and `rootCollection` needs declaring as a field with no role:
 
 <Code code={visibilityCollections} lang="ts" />
 
 Visibility doesn't pass down from collections. A member of a Hidden collection is only Hidden if your filters hide it,
 which is why both filters also check `rootCollection`. In Prisma, `notIn` leaves out rows where the column is null, so
-the entity filter keeps top-level collections with an explicit `rootCollection: null`.
+the entity filter keeps top-level collections with an explicit `rootCollection: null`. The search filter needs no such
+clause, as its `notIn` already matches entities with no `rootCollection`.
 
 Hide only what shouldn't be published. An entity a request lacks the licence for should stay Visible and be Denied, so
 its Record still says where to apply; see [Licence checks against an external authority](/strategies/access/#licence-checks-against-an-external-authority).

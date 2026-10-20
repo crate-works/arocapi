@@ -601,7 +601,7 @@ describe('Integration Tests', () => {
     const hideDrafts = {
       OR: [{ meta: { path: ['draft'], equals: Prisma.AnyNull } }, { meta: { path: ['draft'], not: true } }],
     };
-    const hideDraftsSearch = { bool: { must_not: { term: { draft: true } } } };
+    const hideDraftsSearch = { draft: { not: true } };
     const stubHandlers = {
       fileHandler: {
         get: async () => ({ type: 'redirect' as const, url: 'https://files.example.com/file' }),

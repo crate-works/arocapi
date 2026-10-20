@@ -56,7 +56,7 @@ backend is called. `SearchRequest` has:
 | `geohashPrecision` | integer, optional                             | Only when `geo.supported`, and always with `boundingBox`.        |
 | `limit`, `offset`  | integers                                      | The page.                                                        |
 | `sort`, `order`    | a declared sort or `relevance`; `asc` or `desc` | `relevance` is best match first, stable across pages for an empty query. |
-| `visibility`       | the [search visibility filter](/configuration/visibility/#searchvisibilityfilter)'s result | Already resolved, so the backend never calls consumer code. |
+| `visibility`       | `SearchVisibilityWhere`, the [search visibility filter](/configuration/visibility/#searchvisibilityfilter)'s result | Already resolved, so the backend never calls consumer code. Not yet checked. |
 
 An advanced query arrives already parsed and checked against the declared advanced fields and the
 [caps](/reference/search-queries/#caps), as an `AdvancedQuery`:
@@ -74,7 +74,10 @@ matches `value` exactly.
 
 `context` is the request context, `{ request, fastify }`.
 
-The backend applies `visibility` to the hits, the total and the facets, and returns a `SearchResult`:
+The backend checks `visibility` against its fields on every search, since only it knows the fields with no role. On an
+undeclared field, an operator that doesn't fit the field's type or a bad value, it throws a plain `Error` naming the
+field, which arocapi answers with a 500 and logs. It applies `visibility` to the hits, the total and the facets, with
+the [semantics](/configuration/visibility/#semantics) every backend shares, and returns a `SearchResult`:
 
 ```ts
 type SearchResult = {

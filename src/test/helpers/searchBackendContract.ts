@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SearchBackend } from '../../search/backend.js';
 import type { FieldDeclarations, SearchDocument } from '../../search/fields.js';
+import type { SearchVisibilityWhere } from '../../search/visibility.js';
 import type { StandardErrorResponse } from '../../utils/errors.js';
 import { buildTestApp, createTestEntities } from '../integration.setup.js';
 
@@ -445,6 +446,108 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
       const body = await search({ query: '', limit: 1 });
 
       expect(body.total).toBe(10_001);
+    });
+
+    describe('search visibility', () => {
+      const visibilityFields = {
+        title: { type: 'text', basic: false },
+        tags: { type: 'keyword', facet: true },
+        draft: { type: 'boolean' },
+        pages: { type: 'number' },
+        created: { type: 'date' },
+        location: { type: 'geo' },
+      } satisfies FieldDeclarations;
+
+      const visibilityDocs: SearchDocument<typeof visibilityFields>[] = [
+        { id: id(1), title: 'Hello World', tags: ['a', 'b'], draft: true, pages: 10, created: '2001' },
+        { id: id(2), tags: 'b', draft: false, pages: 5, created: '2010-06-01' },
+        { id: id(3) },
+        { id: id(4), tags: ['c'], pages: 20, created: '2020-01-01T10:00:00+10:00' },
+      ];
+
+      const loadVisible = async (where: unknown) => {
+        const backend = harness.create(visibilityFields);
+        await harness.prepare(backend);
+        await createTestEntities(visibilityDocs.map((doc) => ({ id: doc.id, name: doc.id })));
+        await backend.index(visibilityDocs);
+        app = await buildTestApp({ search: backend, searchVisibilityFilter: () => where as SearchVisibilityWhere });
+      };
+
+      it.each<[string, SearchVisibilityWhere<typeof visibilityFields>, number[]]>([
+        ['everything for {}', {}, [1, 2, 3, 4]],
+        ['a bare value as equals', { draft: true }, [1]],
+        ['not, including entities missing the field', { draft: { not: true } }, [2, 3, 4]],
+        ['null to entities missing the field', { draft: null }, [3, 4]],
+        ['equals null to entities missing the field', { draft: { equals: null } }, [3, 4]],
+        ['not null to entities with the field', { draft: { not: null } }, [1, 2]],
+        ['equals to any of several values', { tags: { equals: 'b' } }, [1, 2]],
+        ['not to entities where no value matches', { tags: { not: 'b' } }, [3, 4]],
+        ['in to any of several values', { tags: { in: ['a', 'c'] } }, [1, 4]],
+        ['an empty in', { tags: { in: [] } }, []],
+        ['notIn to entities where no value is listed', { tags: { notIn: ['a'] } }, [2, 3, 4]],
+        ['an empty notIn', { tags: { notIn: [] } }, [1, 2, 3, 4]],
+        ["a text field's exact form", { title: 'Hello World' }, [1]],
+        ["a text field's exact form, not its words", { title: 'Hello' }, []],
+        ['a number range', { pages: { gt: 5, lte: 20 } }, [1, 4]],
+        ['a number bound, leaving out entities missing the field', { pages: { lt: 10 } }, [2]],
+        ['a partial date bound as its first UTC instant', { created: { gte: '2010' } }, [2, 4]],
+        ['a Date bound', { created: { lt: new Date('2010-06-01T00:00:00Z') } }, [1]],
+        ['a date in UTC', { created: '2020-01-01' }, [4]],
+        ['a number with equality and a bound together', { pages: { not: 10, gte: 5 } }, [2, 4]],
+        ['id', { id: id(2) }, [2]],
+        ['notIn on id', { id: { notIn: [id(1), id(2)] } }, [3, 4]],
+        ['several keys as AND', { tags: 'b', pages: 5 }, [2]],
+        ['AND', { AND: [{ tags: 'b' }, { draft: { not: true } }] }, [2]],
+        ['OR', { OR: [{ draft: true }, { pages: 20 }] }, [1, 4]],
+        ['an empty OR', { OR: [] }, []],
+        ['NOT, matching none of its filters', { NOT: [{ draft: true }, { pages: 20 }] }, [2, 3]],
+        ['undefined as no condition', { draft: undefined, pages: { gte: undefined, lt: 10 } }, [2]],
+      ])('applies %s to hits and total', async (_case, where, expected) => {
+        await loadVisible(where);
+
+        const body = await search({ query: '' });
+
+        expect(body.total).toBe(expected.length);
+        expect(body.entities.map((entity) => entity.id).sort()).toEqual(expected.map(id));
+      });
+
+      it('counts facets over visible entities only', async () => {
+        await loadVisible({ draft: { not: true } });
+
+        const { facets } = await search({ query: '' });
+
+        expect(facets.tags).toEqual([
+          { name: 'b', count: 1 },
+          { name: 'c', count: 1 },
+        ]);
+      });
+
+      it.each([
+        ['an undeclared field', { secret: 'x' }, 'secret'],
+        ['a geo field', { location: null }, 'location'],
+        ['a range on a keyword', { tags: { lt: 'b' } }, 'tags'],
+        ['an unknown operator', { pages: { contains: 5 } }, 'pages'],
+        ['a value of the wrong type', { AND: [{ pages: 'ten' }] }, 'pages'],
+        ['a bad date', { created: { gte: '2001-13' } }, 'created'],
+        ['a date that is neither a string nor a Date', { created: 2001 }, 'created'],
+        ['an invalid Date', { created: new Date('never') }, 'created'],
+        ['a keyword that is not a string', { tags: { in: [5] } }, 'tags'],
+        ['a boolean that is not a boolean', { draft: { not: 'yes' } }, 'draft'],
+        ['in without an array', { tags: { in: 'a' } }, 'tags'],
+        ['a combinator without an array', { OR: { draft: true } }, 'OR'],
+        ['a filter that is not an object', 'draft', 'filter'],
+      ])('answers a filter with %s with a 500, logging the field', async (_case, where, field) => {
+        await loadVisible(where);
+        const logError = vi.spyOn(app.log, 'error');
+
+        const response = await app.inject({ method: 'POST', url: '/search', payload: { query: '' } });
+
+        expect(response.statusCode).toBe(500);
+        expect(response.json<StandardErrorResponse>().error.code).toBe('INTERNAL_ERROR');
+        expect(logError).toHaveBeenCalledWith({
+          err: expect.objectContaining({ message: expect.stringContaining(`"${field}"`) }),
+        });
+      });
     });
   });
 };

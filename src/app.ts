@@ -9,11 +9,12 @@ import files from './routes/files.js';
 import metadata from './routes/metadata.js';
 import search from './routes/search.js';
 import type { SearchBackend } from './search/backend.js';
+import type { SearchVisibilityWhere } from './search/visibility.js';
 import type { AccessFunction } from './types/access.js';
-import type { IsAuthenticated } from './types/context.js';
+import type { IsAuthenticated, RequestContext } from './types/context.js';
 import type { FileHandler, RoCrateHandler } from './types/fileHandlers.js';
 import type { EntityTransformer, FileTransformer } from './types/transformers.js';
-import type { EntityVisibilityFilter, SearchVisibilityFilter } from './types/visibility.js';
+import type { EntityVisibilityFilter } from './types/visibility.js';
 import { notFoundHandler } from './utils/errors.js';
 import { setupValidation } from './utils/validation.js';
 
@@ -42,6 +43,7 @@ export type { OpenSearchBackendOptions } from './search/opensearch.js';
 export { OpenSearchBackend } from './search/opensearch.js';
 export type { PostgresBackendOptions, PostgresClient } from './search/postgres.js';
 export { PostgresBackend } from './search/postgres.js';
+export type { SearchVisibilityWhere } from './search/visibility.js';
 export type {
   AuthorisedEntity,
   AuthorisedFile,
@@ -111,7 +113,8 @@ export type Options = {
   fileHandler: FileHandler;
   roCrateHandler: RoCrateHandler;
   entityVisibilityFilter: EntityVisibilityFilter;
-  searchVisibilityFilter: SearchVisibilityFilter;
+  /** A `SearchVisibilityFilter<typeof fields>` for the search backend's declared fields */
+  searchVisibilityFilter: (context: RequestContext) => Promise<SearchVisibilityWhere> | SearchVisibilityWhere;
   isAuthenticated?: IsAuthenticated;
   promptLoginForHidden?: boolean;
 };

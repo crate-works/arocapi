@@ -17,6 +17,7 @@ export type FieldDeclaration = {
 export type FieldDeclarations = Record<string, FieldDeclaration>;
 
 const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const RESERVED: readonly string[] = ['id', 'AND', 'OR', 'NOT'];
 const FIELD_TYPES: readonly string[] = ['text', 'keyword', 'date', 'number', 'boolean', 'geo'];
 
 const isPositiveInteger = (value: number) => Number.isInteger(value) && value > 0;
@@ -25,7 +26,7 @@ const checkDeclaration = (name: string, declaration: FieldDeclaration) => {
   if (!FIELD_NAME.test(name)) {
     return `must match ${FIELD_NAME}`;
   }
-  if (name === 'id') {
+  if (RESERVED.includes(name)) {
     return 'is reserved';
   }
 
@@ -134,7 +135,7 @@ export const capabilitiesFromFields = (fields: FieldDeclarations): BackendSearch
   };
 };
 
-export const isFilter = (declaration: FieldDeclaration) => Boolean(declaration.filter || declaration.facet);
+const isFilter = (declaration: FieldDeclaration) => Boolean(declaration.filter || declaration.facet);
 
 export type GeoPoint = { lat: number; lng: number };
 

@@ -179,7 +179,8 @@ You supply visibility twice, because arocapi reads from two places:
 
 - `entityVisibilityFilter` is a Prisma `where` condition, used for listings, single-entity routes, and to reload
   search hits from the database.
-- `searchVisibilityFilter` is an OpenSearch query, used for search results, `total` and facets.
+- `searchVisibilityFilter` is a condition over the search backend's declared fields, used for search results, `total`
+  and facets.
 
 Both must describe the same set of entities for every request. arocapi applies each one where it reads, but it
 can't check that they agree. If they don't:

@@ -8,7 +8,7 @@ const openLicence = 'https://creativecommons.org/licenses/by/4.0/';
 
 export const guards = {
   entityVisibilityFilter: () => ({ meta: { path: '$.published', equals: true } }),
-  searchVisibilityFilter: () => ({ term: { 'meta.published': true } }),
+  searchVisibilityFilter: () => ({ published: true }),
   isAuthenticated: ({ request }) => currentUser(request) !== undefined,
   access: LicenceAccess({
     hasLicence: (licenceId, { request }) =>

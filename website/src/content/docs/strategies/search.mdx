@@ -51,8 +51,9 @@ With `OpenSearchBackend`, the [field declarations](/configuration/search/#fields
 
 ## Search and visibility
 
-Your `searchVisibilityFilter` returns an OpenSearch query. arocapi passes it to the backend as the request's
-`visibility`, and `OpenSearchBackend` applies it as a filter beside the query, so hidden entities are excluded from the
+Your `searchVisibilityFilter` returns a condition over `id` and your declared fields, in
+[one language for every backend](/configuration/visibility/#searchvisibilityfilter). arocapi passes it to the backend
+as the request's `visibility`, and `OpenSearchBackend` applies it as a filter beside the query, so hidden entities are excluded from the
 hits, from `total` and from every facet count.
 
 arocapi then loads the hits from the database through your `entityVisibilityFilter` as well. A hit that the database

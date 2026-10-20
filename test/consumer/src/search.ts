@@ -4,12 +4,15 @@ import {
   type BackendSearchCapability,
   capabilitiesFromFields,
   OpenSearchBackend,
+  type Options,
   PostgresBackend,
   type PostgresClient,
   type SearchBackend,
   type SearchDocument,
   SearchQueryError,
   type SearchResult,
+  type SearchVisibilityFilter,
+  type SearchVisibilityWhere,
 } from 'arocapi';
 
 declare const client: Client;
@@ -88,3 +91,31 @@ export const noTotal: SearchBackend = {
   // @ts-expect-error a result needs an exact total
   search: async () => ({ hits: [] }),
 };
+
+// A search visibility filter is typed from the field declarations
+export const visibility: SearchVisibilityFilter<typeof fields> = async () => ({
+  draft: { not: true },
+  id: { notIn: ['http://example.com/hidden'] },
+  inLanguage: { in: ['eng'] },
+  name: 'Greeting',
+  originatedOn: { gte: '2001', lt: new Date('2010-01-01') },
+  pages: null,
+  OR: [{ pages: { gt: 10 } }, { NOT: [{ inLanguage: null }] }],
+});
+
+export const allVisible: SearchVisibilityWhere<typeof fields> = {};
+
+// @ts-expect-error title isn't declared
+export const undeclaredWhere: SearchVisibilityWhere<typeof fields> = { title: 'Greeting' };
+
+// @ts-expect-error pages is a number
+export const wrongWhereType: SearchVisibilityWhere<typeof fields> = { pages: { in: ['12'] } };
+
+// @ts-expect-error a keyword has no order
+export const keywordRange: SearchVisibilityWhere<typeof fields> = { inLanguage: { lt: 'f' } };
+
+// @ts-expect-error a geo field can't be filtered on
+export const geoWhere: SearchVisibilityWhere<typeof fields> = { location: null };
+
+// A typed filter is accepted by the plugin options
+export const options: Pick<Options, 'searchVisibilityFilter'> = { searchVisibilityFilter: visibility };

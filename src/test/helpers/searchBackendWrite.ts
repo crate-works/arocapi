@@ -46,6 +46,10 @@ export const describeSearchBackendWrites = <Backend extends WriteBackend>(
         expect(() => harness.create({ id: { type: 'keyword' } })).toThrow('"id" is reserved');
       });
 
+      it.each(['AND', 'OR', 'NOT'])('reserves the search visibility combinator %s', (name) => {
+        expect(() => harness.create({ [name]: { type: 'keyword' } })).toThrow(`"${name}" is reserved`);
+      });
+
       it('rejects relevance as a sort field', () => {
         expect(() => harness.create({ relevance: { type: 'keyword', sort: true } })).toThrow('"relevance"');
       });

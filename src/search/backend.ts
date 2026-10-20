@@ -1,5 +1,6 @@
 import type { RequestContext } from '../types/context.js';
 import type { BackendSearchCapability, GeoPoint, SearchDocument } from './fields.js';
+import type { SearchVisibilityWhere } from './visibility.js';
 
 export type { BackendSearchCapability } from './fields.js';
 
@@ -39,8 +40,8 @@ export type SearchRequest = (
   /** A declared sort, or `relevance`: best match first, stable for an empty query */
   sort: string;
   order: 'asc' | 'desc';
-  /** The result of `searchVisibilityFilter`, which the backend applies to hits, total and facets */
-  visibility: unknown;
+  /** The resolved `searchVisibilityFilter`, which the backend checks and applies to hits, total and facets */
+  visibility: SearchVisibilityWhere;
 };
 
 export type SearchExtra = { score?: number; highlight?: Record<string, string[]> };
