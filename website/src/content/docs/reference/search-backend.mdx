@@ -9,8 +9,8 @@ import { Code } from '@astrojs/starlight/components';
 import searchBackendCustom from '@examples/reference/search-backend-custom.ts?raw';
 
 A search backend is a plain object satisfying the exported `SearchBackend` interface, passed as the
-[`search`](/configuration/search/) option. `OpenSearchBackend` is one; your own is an object literal typed
-`SearchBackend`.
+[`search`](/configuration/search/) option. `OpenSearchBackend` and `PostgresBackend` are two; your own is an object
+literal typed `SearchBackend`.
 
 ```ts
 interface SearchBackend {
@@ -56,7 +56,7 @@ backend is called. `SearchRequest` has:
 | `geohashPrecision` | integer, optional                             | Only when `geo.supported`, and always with `boundingBox`.        |
 | `limit`, `offset`  | integers                                      | The page.                                                        |
 | `sort`, `order`    | a declared sort or `relevance`; `asc` or `desc` | `relevance` is best match first, stable across pages for an empty query. |
-| `visibility`       | `SearchVisibilityWhere`, the [search visibility filter](/configuration/visibility/#searchvisibilityfilter)'s result | Already resolved, so the backend never calls consumer code. Not yet checked. |
+| `visibility`       | `SearchVisibilityWhere`, the [search visibility filter](/configuration/visibility/#searchvisibilityfilter)'s result | Already resolved, so the backend never calls consumer code. Unchecked: see below. |
 
 An advanced query arrives already parsed and checked against the declared advanced fields and the
 [caps](/reference/search-queries/#caps), as an `AdvancedQuery`:
@@ -75,10 +75,23 @@ exactly. A `value` the field can't hold is a `SearchQueryError`.
 
 `context` is the request context, `{ request, fastify }`.
 
-The backend checks `visibility` against its fields on every search, since only it knows the fields with no role. On an
-undeclared field, an operator that doesn't fit the field's type or a bad value, it throws a plain `Error` naming the
-field, which arocapi answers with a 500 and logs. It applies `visibility` to the hits, the total and the facets, with
-the [semantics](/configuration/visibility/#semantics) every backend shares, and returns a `SearchResult`:
+The backend checks `visibility` against its fields on every search, since only it knows the fields with no role. The
+exported `checkSearchVisibility(fields, visibility)` does this from field declarations: on an undeclared field, an
+operator that doesn't fit the field's type or a bad value, it throws a plain `Error` naming the field, which arocapi
+answers with a 500 and logs. Otherwise it returns a normalised `VisibilityCondition` tree, with dates as UTC `Date`s:
+
+```ts
+type VisibilityCondition =
+  | { type: 'and' | 'or'; clauses: VisibilityCondition[] } // an empty `and` matches everything, an empty `or` nothing
+  | { type: 'not'; clause: VisibilityCondition }
+  | { type: 'in'; field: string; values: (string | number | boolean | Date)[] } // any value of the field is listed
+  | { type: 'present'; field: string } // the field has a value
+  | { type: 'range'; field: string; bounds: Partial<Record<'lt' | 'lte' | 'gt' | 'gte', number | Date>> }; // any value is within all
+```
+
+`field` is a declared field or `id`, and a `text` field compares its exact value. The backend applies the condition to
+the hits, the total and the facets, with the [semantics](/configuration/visibility/#semantics) every backend shares,
+and returns a `SearchResult`:
 
 ```ts
 type SearchResult = {
@@ -113,7 +126,7 @@ read-only backend throws from both.
 
 ## Example
 
-A read-only backend over an in-memory list. It ignores `visibility`, so it only suits a repository using
-`AllVisibleSearchFilter`:
+A read-only backend over an in-memory list. It checks `visibility` with `checkSearchVisibility` and applies the
+condition before the query and filters, so hidden entities stay out of the hits, the total and the facets:
 
 <Code code={searchBackendCustom} lang="ts" />

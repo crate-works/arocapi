@@ -3,6 +3,7 @@ import type { Client } from '@opensearch-project/opensearch';
 import {
   type BackendSearchCapability,
   capabilitiesFromFields,
+  checkSearchVisibility,
   OpenSearchBackend,
   type Options,
   PostgresBackend,
@@ -13,6 +14,7 @@ import {
   type SearchResult,
   type SearchVisibilityFilter,
   type SearchVisibilityWhere,
+  type VisibilityCondition,
 } from 'arocapi';
 
 declare const client: Client;
@@ -66,7 +68,7 @@ export const inline = OpenSearchBackend({ client, fields: { pages: { type: 'numb
 
 // The reference backends satisfy the contract
 export const openSearchBackend: SearchBackend = backend;
-export const postgresBackend: Omit<SearchBackend, 'search'> = PostgresBackend({ prisma, fields });
+export const postgresBackend: SearchBackend = PostgresBackend({ prisma, fields });
 
 // A custom backend is an object literal
 export const custom: SearchBackend = {
@@ -119,3 +121,22 @@ export const geoWhere: SearchVisibilityWhere<typeof fields> = { location: null }
 
 // A typed filter is accepted by the plugin options
 export const options: Pick<Options, 'searchVisibilityFilter'> = { searchVisibilityFilter: visibility };
+
+// A custom backend checks the search visibility filter into a condition tree
+export const condition: VisibilityCondition = checkSearchVisibility(fields, { draft: { not: true } });
+
+export const describeCondition = (node: VisibilityCondition): string => {
+  switch (node.type) {
+    case 'and':
+    case 'or':
+      return node.clauses.map(describeCondition).join(` ${node.type} `);
+    case 'not':
+      return `not ${describeCondition(node.clause)}`;
+    case 'in':
+      return `${node.field} in ${node.values.map(String).join(', ')}`;
+    case 'present':
+      return `${node.field} present`;
+    case 'range':
+      return `${node.field} within ${Object.keys(node.bounds).join(', ')}`;
+  }
+};
