@@ -29,7 +29,8 @@ export type SearchRequest = (
   filters: {
     /** Field name → values, any of which matches */
     terms: Record<string, string[]>;
-    ranges: Record<string, RangeFilter>;
+    /** Field name → ranges, any of which matches; date and number filters always arrive here, exact values as ranges */
+    ranges: Record<string, RangeFilter[]>;
   };
   boundingBox?: BoundingBox;
   geohashPrecision?: number;

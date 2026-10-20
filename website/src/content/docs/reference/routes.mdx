@@ -109,15 +109,17 @@ JSON body:
 | ------------------ | ----------------------------------------------- | ----------- | ----------------------------------------------- |
 | `query`            | string, **required**                            | none        | Search text. Empty matches every visible entity. |
 | `searchType`       | a search type in `/capabilities`                | `basic`     | `basic` is free text the backend interprets its own way. |
-| `filters`          | `Record<string, string[]>`                      | none        | Exact values per declared filter: any value within a field, every field. |
+| `filters`          | `Record<string, string[] \| { gte?, lte? } \| { gte?, lte? }[]>` | none | Per declared filter, exact values or, for `date` and `number` filters, inclusive ranges: any value or range within a field, every field. See [Dates](/configuration/search/#dates). |
 | `boundingBox`      | `{ topRight: { lat, lng }, bottomLeft: { lat, lng } }` | none | Only entities inside, when geo is supported. |
-| `geohashPrecision` | integer, 1 to 12                                | none        | Return a geohash grid, when geo is supported.   |
+| `geohashPrecision` | integer, 1 to 12                                | none        | Return a geohash grid over the box; needs `boundingBox`. |
 | `limit`            | integer, 1 to 1000                              | `100`       | Page size.                                      |
 | `offset`           | integer, 0 or more                              | `0`         | Hits to skip.                                   |
 | `sort`             | a sort in `/capabilities`, or `relevance`       | `relevance` | Sort field. `relevance` is best match first.    |
 | `order`            | `asc`, `desc`                                   | `asc`       | Sort direction.                                 |
 
-An undeclared filter key, sort or search type is a 400 `VALIDATION_ERROR`. A query the backend can't run is a 422.
+An undeclared filter key, sort or search type, a bad range, a range on a `string` or `boolean` filter, and
+`boundingBox` or `geohashPrecision` when geo isn't supported are a 400 `VALIDATION_ERROR`. A query the backend can't
+run is a 422.
 
 Response:
 

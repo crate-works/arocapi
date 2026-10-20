@@ -168,7 +168,7 @@ export type StoredSearchDocument = { id: string; values: Record<string, StoredSc
 
 const DATE = /^(\d{4})(?:-(\d{2})(?:-(\d{2})(?:[Tt ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?([Zz]|[+-]\d{2}:\d{2})?)?)?)?$/;
 
-const parseDate = (value: string) => {
+export const parseDate = (value: string) => {
   const match = DATE.exec(value);
   if (!match) {
     return undefined;

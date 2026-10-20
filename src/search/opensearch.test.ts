@@ -131,14 +131,19 @@ describe('OpenSearchBackend', () => {
         ...overrides,
       }) as SearchRequest;
 
-    it('gives each relevance hit its score in searchExtra', async () => {
+    it('gives each relevance hit its score and the highlighted matches in searchExtra', async () => {
       const backend = OpenSearchBackend({ client, fields, indexName });
       await backend.createIndex();
-      await backend.index([{ id: 'http://example.com/1', name: 'Kangaroo' }]);
+      await backend.index([{ id: 'http://example.com/1', name: 'Red Kangaroo', inLanguage: 'kangaroo' }]);
 
       const { hits } = await backend.search(request({ query: 'kangaroo' }));
 
-      expect(hits).toEqual([{ id: 'http://example.com/1', searchExtra: { score: expect.any(Number) } }]);
+      expect(hits).toEqual([
+        {
+          id: 'http://example.com/1',
+          searchExtra: { score: expect.any(Number), highlight: { name: ['Red <em>Kangaroo</em>'] } },
+        },
+      ]);
     });
 
     it('leaves out searchExtra for a hit with no score', async () => {

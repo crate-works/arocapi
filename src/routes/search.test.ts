@@ -41,6 +41,7 @@ type SearchBody = {
 
 type Setup = {
   searchTypes?: BackendSearchCapability['searchTypes'];
+  extraCapabilities?: Partial<BackendSearchCapability>;
   respond?: (request: SearchRequest) => SearchResult | Promise<SearchResult>;
   entityTransformers?: EntityTransformer[];
   searchVisibilityFilter?: () => unknown;
@@ -53,8 +54,12 @@ const setup = async ({
   entityTransformers,
   searchVisibilityFilter,
   entityVisibilityFilter,
+  extraCapabilities,
 }: Setup = {}) => {
-  const fake = fakeSearchBackend({ ...capabilities, ...(searchTypes && { searchTypes }) }, respond);
+  const fake = fakeSearchBackend(
+    { ...capabilities, ...(searchTypes && { searchTypes }), ...extraCapabilities },
+    respond,
+  );
   await fastifyBefore();
   prisma.entity.findMany.mockResolvedValue([]);
   await fastify.register(searchRoute, {
@@ -126,7 +131,7 @@ describe('Search Route', () => {
     });
 
     it('carries a bounding box and geohash precision', async () => {
-      const { requests } = await setup();
+      const { requests } = await setup({ extraCapabilities: { geo: { supported: true } } });
       const boundingBox = { topRight: { lat: -10, lng: 155 }, bottomLeft: { lat: -45, lng: 110 } };
 
       await search({ query: '', boundingBox, geohashPrecision: 3 });
@@ -348,6 +353,177 @@ describe('Search Route', () => {
 
       expect(body.searchTime).toBeGreaterThanOrEqual(45);
       expect(body.searchTime).toBeLessThan(1000);
+    });
+  });
+
+  describe('ranges and geo', () => {
+    const extraCapabilities = {
+      filters: {
+        inLanguage: { type: 'string' as const },
+        open: { type: 'boolean' as const },
+        datePublished: { type: 'date' as const },
+        pages: { type: 'number' as const },
+      },
+    };
+    const geo = { ...extraCapabilities, geo: { supported: true } };
+    const box = { topRight: { lat: -10, lng: 155 }, bottomLeft: { lat: -45, lng: 110 } };
+
+    const filtersSent = async (filters: object) => {
+      const { requests } = await setup({ extraCapabilities });
+
+      const response = await search({ query: '', filters });
+
+      expect(response.statusCode).toBe(200);
+
+      return requests[0].filters;
+    };
+
+    it('turns a calendar-date range into UTC instants covering whole days', async () => {
+      expect(await filtersSent({ datePublished: { gte: '2001-01-01', lte: '2001-12-31' } })).toEqual({
+        terms: {},
+        ranges: {
+          datePublished: [{ gte: new Date('2001-01-01T00:00:00.000Z'), lte: new Date('2001-12-31T23:59:59.999Z') }],
+        },
+      });
+    });
+
+    it('uses a date-time bound as given, reading one with no offset as UTC', async () => {
+      const filters = await filtersSent({
+        datePublished: [{ gte: '2001-06-01T10:00:00+10:00' }, { lte: '1999-01-01T12:30:00.5' }],
+      });
+
+      expect(filters.ranges).toEqual({
+        datePublished: [{ gte: new Date('2001-06-01T00:00:00.000Z') }, { lte: new Date('1999-01-01T12:30:00.500Z') }],
+      });
+    });
+
+    it('turns exact dates into ranges: a calendar date covers its UTC day, a date-time is that instant', async () => {
+      const filters = await filtersSent({ datePublished: ['2001-02-03', '2001-02-05T01:02:03Z'] });
+
+      expect(filters).toEqual({
+        terms: {},
+        ranges: {
+          datePublished: [
+            { gte: new Date('2001-02-03T00:00:00.000Z'), lte: new Date('2001-02-03T23:59:59.999Z') },
+            { gte: new Date('2001-02-05T01:02:03.000Z'), lte: new Date('2001-02-05T01:02:03.000Z') },
+          ],
+        },
+      });
+    });
+
+    it('turns number ranges and exact numbers into numeric ranges', async () => {
+      const filters = await filtersSent({ pages: [{ gte: 5 }, { gte: 1, lte: 2.5 }] });
+      const exact = await filtersSent({ pages: ['5', '10.5'] });
+
+      expect(filters).toEqual({ terms: {}, ranges: { pages: [{ gte: 5 }, { gte: 1, lte: 2.5 }] } });
+      expect(exact.ranges).toEqual({
+        pages: [
+          { gte: 5, lte: 5 },
+          { gte: 10.5, lte: 10.5 },
+        ],
+      });
+    });
+
+    it('keeps string and boolean filters as exact terms beside ranges', async () => {
+      expect(await filtersSent({ inLanguage: ['eng'], open: ['false'], pages: { lte: 3 } })).toEqual({
+        terms: { inLanguage: ['eng'], open: ['false'] },
+        ranges: { pages: [{ lte: 3 }] },
+      });
+    });
+
+    it.each([
+      ['a range on a string filter', { inLanguage: { gte: 'a' } }, 'inLanguage'],
+      ['a range on a boolean filter', { open: [{ gte: 'false' }] }, 'open'],
+      ['a year as a date bound', { datePublished: { gte: '2001' } }, 'datePublished'],
+      ['a year and month as a date bound', { datePublished: { lte: '2001-12' } }, 'datePublished'],
+      ['an impossible date', { datePublished: { lte: '2001-02-30' } }, 'datePublished'],
+      ['a number as a date bound', { datePublished: { gte: 2001 } }, 'datePublished'],
+      ['a string as a number bound', { pages: { gte: '5' } }, 'pages'],
+      ['a lower bound above the upper bound', { pages: { gte: 6, lte: 5 } }, 'pages'],
+      [
+        'a lower date bound after the upper one',
+        { datePublished: { gte: '2002-01-01', lte: '2001-12-31' } },
+        'datePublished',
+      ],
+      ['a partial exact date', { datePublished: ['2001'] }, 'datePublished'],
+      ['a non-numeric exact number', { pages: ['many'] }, 'pages'],
+    ])('rejects %s with a 400 naming the filter', async (_problem, filters, key) => {
+      const { requests } = await setup({ extraCapabilities });
+
+      const response = await search({ query: '', filters });
+
+      expect(response.statusCode).toBe(400);
+      const { error } = response.json<StandardErrorResponse>();
+      expect(error.code).toBe('VALIDATION_ERROR');
+      expect(error.details?.violations).toEqual([expect.objectContaining({ field: `/filters/${key}` })]);
+      expect(requests).toHaveLength(0);
+    });
+
+    it.each([
+      ['a range with no bound', { pages: {} }],
+      ['a range with an unknown bound', { pages: { gt: 5 } }],
+      ['an array mixing ranges and exact values', { pages: [{ gte: 1 }, '2'] }],
+    ])('rejects %s with a 400', async (_problem, filters) => {
+      const { requests } = await setup({ extraCapabilities });
+
+      const response = await search({ query: '', filters });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json<StandardErrorResponse>().error.code).toBe('VALIDATION_ERROR');
+      expect(requests).toHaveLength(0);
+    });
+
+    it.each([
+      ['a bounding box', { boundingBox: box }, '/boundingBox'],
+      ['a geohash precision', { boundingBox: box, geohashPrecision: 3 }, '/geohashPrecision'],
+    ])('rejects %s with a 400 when geo is not supported', async (_param, payload, field) => {
+      const { requests } = await setup({ extraCapabilities });
+
+      const response = await search({ query: '', ...payload });
+
+      expect(response.statusCode).toBe(400);
+      const { error } = response.json<StandardErrorResponse>();
+      expect(error.code).toBe('VALIDATION_ERROR');
+      expect(error.details?.violations).toEqual(expect.arrayContaining([expect.objectContaining({ field })]));
+      expect(requests).toHaveLength(0);
+    });
+
+    it.each([
+      ['a geohash precision without a bounding box', { geohashPrecision: 3 }, '/geohashPrecision'],
+      [
+        'a bounding box upside down',
+        { boundingBox: { topRight: { lat: -45, lng: 155 }, bottomLeft: { lat: -10, lng: 110 } } },
+        '/boundingBox',
+      ],
+    ])('rejects %s with a 400', async (_problem, payload, field) => {
+      const { requests } = await setup({ extraCapabilities: geo });
+
+      const response = await search({ query: '', ...payload });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json<StandardErrorResponse>().error.details?.violations).toEqual([
+        expect.objectContaining({ field }),
+      ]);
+      expect(requests).toHaveLength(0);
+    });
+
+    it('rejects a latitude out of range with a 400', async () => {
+      const { requests } = await setup({ extraCapabilities: geo });
+
+      const response = await search({ query: '', boundingBox: { ...box, topRight: { lat: 91, lng: 155 } } });
+
+      expect(response.statusCode).toBe(400);
+      expect(requests).toHaveLength(0);
+    });
+
+    it('passes a box crossing the antimeridian through', async () => {
+      const { requests } = await setup({ extraCapabilities: geo });
+      const boundingBox = { topRight: { lat: 10, lng: -170 }, bottomLeft: { lat: -10, lng: 170 } };
+
+      const response = await search({ query: '', boundingBox });
+
+      expect(response.statusCode).toBe(200);
+      expect(requests[0].boundingBox).toEqual(boundingBox);
     });
   });
 });

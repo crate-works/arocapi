@@ -205,6 +205,142 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
       });
     });
 
+    describe('with dates, numbers and geo', () => {
+      const geoFields = {
+        name: { type: 'text', sort: true },
+        datePublished: { type: 'date', facet: true },
+        pages: { type: 'number', filter: true },
+        inLanguage: { type: 'keyword', filter: true },
+        open: { type: 'boolean', filter: true },
+        location: { type: 'geo' },
+      } satisfies FieldDeclarations;
+
+      const geoDocs: SearchDocument<typeof geoFields>[] = [
+        { id: id(1), name: 'sydney', datePublished: '2001', pages: 10, location: { lat: -33.87, lng: 151.21 } },
+        {
+          id: id(2),
+          name: 'darwin',
+          datePublished: '2001-12-31T23:30:00-01:00',
+          pages: 5,
+          location: { lat: -12.46, lng: 130.84 },
+        },
+        { id: id(3), name: 'suva', datePublished: '1999-06', pages: 1, location: { lat: -18.14, lng: 178.44 } },
+        {
+          id: id(4),
+          name: 'apia',
+          datePublished: ['1999-01-01', '2003-05-05'],
+          location: { lat: -13.83, lng: -171.76 },
+        },
+        { id: id(5), name: 'nowhere', pages: 20 },
+      ];
+
+      const sortedIds = async (payload: object) => (await ids({ query: '', ...payload })).sort();
+
+      beforeEach(async () => {
+        await load(geoFields, geoDocs);
+      });
+
+      it('publishes geo as supported when a geo field is declared', async () => {
+        const response = await app.inject({ method: 'GET', url: '/capabilities' });
+
+        expect(response.json().search).toMatchObject({
+          filters: { datePublished: { type: 'date' }, pages: { type: 'number' } },
+          geo: { supported: true },
+        });
+      });
+
+      it.each([
+        ['a whole year, matching a partial date', { datePublished: { gte: '2001-01-01', lte: '2001-12-31' } }, [1]],
+        [
+          'any of several years',
+          {
+            datePublished: [
+              { gte: '2001-01-01', lte: '2001-12-31' },
+              { gte: '1999-01-01', lte: '1999-12-31' },
+            ],
+          },
+          [1, 3, 4],
+        ],
+        ['a date-time bound, in UTC', { datePublished: { gte: '2002-01-01T00:00:00Z' } }, [2, 4]],
+        ['a date-time bound with an offset', { datePublished: { lte: '2002-01-01T10:00:00+10:00' } }, [1, 3, 4]],
+        ['an exact date, covering its UTC day', { datePublished: ['2002-01-01'] }, [2]],
+        ['a number range', { pages: { gte: 5, lte: 10 } }, [1, 2]],
+        ['an open-ended number range', { pages: { gte: 10 } }, [1, 5]],
+        ['any of several number ranges', { pages: [{ lte: 1 }, { gte: 20 }] }, [3, 5]],
+        ['an exact number', { pages: ['5'] }, [2]],
+      ])('filters by %s', async (_filter, filters, expected) => {
+        expect(await sortedIds({ filters })).toEqual(expected.map(id));
+      });
+
+      it('buckets a date facet by UTC year, named YYYY and ordered by year', async () => {
+        const { facets } = await search({ query: '' });
+
+        expect(facets.datePublished).toEqual([
+          { name: '1999', count: 2 },
+          { name: '2001', count: 1 },
+          { name: '2002', count: 1 },
+          { name: '2003', count: 1 },
+        ]);
+      });
+
+      it('counts date buckets over the filtered hits', async () => {
+        const { facets } = await search({ query: '', filters: { pages: { lte: 5 } } });
+
+        expect(facets.datePublished).toEqual([
+          { name: '1999', count: 1 },
+          { name: '2002', count: 1 },
+        ]);
+      });
+
+      it('filters by a bounding box', async () => {
+        const boundingBox = { topRight: { lat: -10, lng: 155 }, bottomLeft: { lat: -45, lng: 110 } };
+
+        expect(await sortedIds({ boundingBox })).toEqual([id(1), id(2)]);
+      });
+
+      it('filters by a bounding box crossing the antimeridian', async () => {
+        const boundingBox = { topRight: { lat: 0, lng: -170 }, bottomLeft: { lat: -20, lng: 170 } };
+
+        expect(await sortedIds({ boundingBox })).toEqual([id(3), id(4)]);
+      });
+
+      it('counts the hits in the box per geohash cell', async () => {
+        const boundingBox = { topRight: { lat: 0, lng: 180 }, bottomLeft: { lat: -45, lng: 110 } };
+        const response = await app.inject({
+          method: 'POST',
+          url: '/search',
+          payload: { query: '', boundingBox, geohashPrecision: 2, filters: { pages: { gte: 1 } } },
+        });
+
+        expect(response.json().geohashGrid).toEqual({ r3: 1, qv: 1, ru: 1 });
+      });
+
+      it.each([
+        ['a range on a string filter', { filters: { inLanguage: { gte: 'a' } } }],
+        ['a range on a boolean filter', { filters: { open: [{ gte: 'false' }] } }],
+        ['a partial date as a range bound', { filters: { datePublished: { gte: '2001' } } }],
+        ['a range with gte above lte', { filters: { pages: { gte: 10, lte: 5 } } }],
+        ['a geohash precision without a bounding box', { geohashPrecision: 2 }],
+      ])('rejects %s with a 400', async (_problem, payload) => {
+        const response = await app.inject({ method: 'POST', url: '/search', payload: { query: '', ...payload } });
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json<StandardErrorResponse>().error.code).toBe('VALIDATION_ERROR');
+      });
+    });
+
+    it.each([
+      ['a bounding box', { boundingBox: { topRight: { lat: 0, lng: 1 }, bottomLeft: { lat: -1, lng: 0 } } }],
+      ['a geohash precision', { geohashPrecision: 2 }],
+    ])('rejects %s with a 400 when no geo field is declared', async (_param, payload) => {
+      await load(fields, docs);
+
+      const response = await app.inject({ method: 'POST', url: '/search', payload: { query: '', ...payload } });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json<StandardErrorResponse>().error.code).toBe('VALIDATION_ERROR');
+    });
+
     it('gives an exact total above 10,000 hits', { timeout: 60_000 }, async () => {
       const many = Array.from({ length: 10_001 }, (_, n) => ({ id: id(n), name: 'many' }));
       await load({ name: { type: 'text' } }, many);

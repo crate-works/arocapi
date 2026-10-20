@@ -43,16 +43,17 @@ fields with a role. You can also write it directly. `relevance` is always a sort
 ## `search(request, context)`
 
 arocapi validates and normalises the request first, so the backend only ever receives a valid one. An undeclared
-filter key, sort or search type is a 400 before the backend is called. `SearchRequest` has:
+filter key, sort or search type, a bad range, and geo parameters when `geo.supported` is false are a 400 before the
+backend is called. `SearchRequest` has:
 
 | Field              | Type                                          | Purpose                                                          |
 | ------------------ | --------------------------------------------- | ---------------------------------------------------------------- |
 | `searchType`       | `basic` or `advanced`                         | A declared search type.                                          |
 | `query`            | string for `basic`, `AdvancedQuery` tree for `advanced` | A basic query is the raw text, for the backend to interpret its own way. |
-| `filters.terms`    | `Record<string, string[]>`                    | Exact-term filters: any value within a field, every field.       |
-| `filters.ranges`   | `Record<string, { gte?, lte? }>`               | Range filters, with date bounds as UTC instants.                 |
-| `boundingBox`      | `{ topRight, bottomLeft }`, optional          | Only when `geo.supported`.                                       |
-| `geohashPrecision` | integer, optional                             | Only when `geo.supported`.                                       |
+| `filters.terms`    | `Record<string, string[]>`                    | Exact-term filters on `string` and `boolean` filters: any value within a field, every field. |
+| `filters.ranges`   | `Record<string, { gte?, lte? }[]>`             | Inclusive range filters on `date` and `number` filters: any range within a field, every field. Date bounds are `Date`s (UTC instants), number bounds numbers. Exact values on these filters arrive here too, as ranges. |
+| `boundingBox`      | `{ topRight, bottomLeft }`, optional          | Only when `geo.supported`. `bottomLeft.lng` above `topRight.lng` crosses the antimeridian. |
+| `geohashPrecision` | integer, optional                             | Only when `geo.supported`, and always with `boundingBox`.        |
 | `limit`, `offset`  | integers                                      | The page.                                                        |
 | `sort`, `order`    | a declared sort or `relevance`; `asc` or `desc` | `relevance` is best match first, stable across pages for an empty query. |
 | `visibility`       | the [search visibility filter](/configuration/visibility/#searchvisibilityfilter)'s result | Already resolved, so the backend never calls consumer code. |
@@ -70,7 +71,9 @@ type SearchResult = {
 };
 ```
 
-Facet buckets are named by the value as a string and ordered by count, then name. arocapi then:
+Facet buckets are named by the value as a string and ordered by count, then name. A `date` facet has one bucket per
+UTC year with matches, named `"YYYY"` and ordered by year. `geohashGrid` counts the hits in the box per geohash at
+`geohashPrecision`. arocapi then:
 
 - loads each hit's Record from the database under `entityVisibilityFilter`, dropping (and logging) any it can't load;
 - attaches `access`, runs the entity transformers and passes `searchExtra` through unchanged;

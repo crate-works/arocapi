@@ -26,7 +26,8 @@ flowchart LR
 ## What the backend sees
 
 arocapi fills in defaults and rejects, with a 400 `VALIDATION_ERROR`, a filter key, sort or search type the backend
-doesn't declare. The backend gets a normalised request: the query, exact-term filters keyed by field name, the page,
+doesn't declare, a bad range and geo the backend doesn't support. The backend gets a normalised request: the query,
+filters keyed by field name and split into exact terms and ranges, with dates as UTC instants, the page,
 the sort and the result of your search visibility filter. The [Search backend](/reference/search-backend/) reference
 lists every field.
 
@@ -34,10 +35,14 @@ With `OpenSearchBackend`, the [field declarations](/configuration/search/#fields
 
 - **Basic search** matches the `basic` fields, weighted by `weight`, with small typos still matching. An empty query
   matches every visible entity.
-- **Filters** match exact values: any value within a field, every field. A `text` field is filtered on its exact value,
-  not its words.
-- **Facets** are counted for every declared facet, named by the value and ordered by count, then name. Every declared
-  facet is in every response, empty when nothing matches.
+- **Filters** match exact values, or ranges on `date` and `number` fields: any value within a field, every field. A
+  `text` field is filtered on its exact value, not its words.
+- **Highlights** of the matched words in basic and advanced fields arrive in each hit's `searchExtra`.
+- **Facets** are counted for every declared facet, named by the value and ordered by count, then name; a `date` facet
+  has one bucket per UTC year, named `YYYY` and ordered by year. Every declared facet is in every response, empty when
+  nothing matches.
+- **Geo**: with a `geo` field declared, `boundingBox` filters the hits and `geohashPrecision` counts them per geohash
+  cell.
 - **Sorts** are any declared sort, or `relevance` (the default), best match first. Missing values sort last and ties
   are broken by id, so paging never repeats or skips an entity.
 - **Totals** are exact, however many entities match.

@@ -3,7 +3,14 @@ import type { Client } from '@opensearch-project/opensearch';
 import type { SortOrder } from '@opensearch-project/opensearch/api/_types/_common.js';
 import type { QueryContainer } from '@opensearch-project/opensearch/api/_types/_common.query_dsl.js';
 import type { Search_RequestBody, Search_Response } from '@opensearch-project/opensearch/api/index.js';
-import { type FacetBucket, SearchQueryError, type SearchRequest, type SearchResult } from './backend.js';
+import {
+  type BoundingBox,
+  type FacetBucket,
+  type RangeBound,
+  SearchQueryError,
+  type SearchRequest,
+  type SearchResult,
+} from './backend.js';
 import {
   capabilitiesFromFields,
   type FieldDeclaration,
@@ -42,6 +49,17 @@ const FACET_ORDER: Record<string, SortOrder>[] = [{ _count: 'desc' }, { _key: 'a
 
 type TermsBucket = { key: string | number; key_as_string?: string; doc_count: number };
 
+// Not a valid field name, so it can't collide with a facet
+const GEOHASH_GRID = 'geohash-grid';
+
+// Epoch milliseconds, which date fields accept as well as numbers
+const toOpenSearchBound = (bound: RangeBound | undefined) => (bound instanceof Date ? bound.getTime() : bound);
+
+const geoBox = ({ topRight, bottomLeft }: BoundingBox) => ({
+  top_left: { lat: topRight.lat, lon: bottomLeft.lng },
+  bottom_right: { lat: bottomLeft.lat, lon: topRight.lng },
+});
+
 type BulkItem = Record<
   string,
   { _id?: string | null; status: number; error?: { type: string; reason?: string | null } }
@@ -60,10 +78,21 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
   const geoField = declared.find(([, { type }]) => type === 'geo')?.[0];
 
   const exactField = (name: string) => (fields[name].type === 'text' ? `${name}.exact` : name);
+  const isBasic = ({ type, basic }: FieldDeclaration) => (type === 'text' ? basic !== false : basic);
   const basicFields = declared
-    .filter(([, { type, basic }]) => (type === 'text' ? basic !== false : basic))
+    .filter(([, declaration]) => isBasic(declaration))
     .map(([name, { weight = 1 }]) => `${name}^${weight}`);
   const facets = declared.filter(([, { facet }]) => facet);
+  const highlight: Search_RequestBody['highlight'] = {
+    fields: Object.fromEntries(
+      declared
+        .filter(
+          ([, declaration]) =>
+            ['text', 'keyword'].includes(declaration.type) && (isBasic(declaration) || declaration.advanced),
+        )
+        .map(([name]) => [name, {}]),
+    ),
+  };
 
   const queryFor = (request: SearchRequest): QueryContainer => {
     if (request.searchType === 'advanced' || request.query.trim() === '') {
@@ -82,15 +111,26 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
   ];
 
   const aggregations: Search_RequestBody['aggs'] = Object.fromEntries(
-    facets.map(([name, { facet }]) => [
+    facets.map(([name, { type, facet }]) => [
       name,
-      {
-        terms: {
-          field: exactField(name),
-          size: typeof facet === 'object' ? facet.size : DEFAULT_FACET_SIZE,
-          order: FACET_ORDER,
-        },
-      },
+      type === 'date'
+        ? {
+            date_histogram: {
+              field: name,
+              calendar_interval: 'year',
+              format: 'yyyy',
+              time_zone: 'UTC',
+              min_doc_count: 1,
+              order: { _key: 'asc' },
+            },
+          }
+        : {
+            terms: {
+              field: exactField(name),
+              size: typeof facet === 'object' ? facet.size : DEFAULT_FACET_SIZE,
+              order: FACET_ORDER,
+            },
+          },
     ]),
   );
 
@@ -118,10 +158,24 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
     capabilities,
 
     search: async (request: SearchRequest): Promise<SearchResult> => {
+      const { boundingBox, geohashPrecision } = request;
       const filter: QueryContainer[] = [
         ...Object.entries(request.filters.terms).map(([name, values]) => ({ terms: { [exactField(name)]: values } })),
+        ...Object.entries(request.filters.ranges).map(([name, ranges]) => ({
+          bool: {
+            should: ranges.map(({ gte, lte }) => ({
+              range: { [name]: { gte: toOpenSearchBound(gte), lte: toOpenSearchBound(lte) } },
+            })),
+            minimum_should_match: 1,
+          },
+        })),
+        ...(geoField && boundingBox ? [{ geo_bounding_box: { [geoField]: geoBox(boundingBox) } }] : []),
         request.visibility as QueryContainer,
       ];
+      const geohashGrid: Search_RequestBody['aggs'] =
+        geoField && geohashPrecision !== undefined
+          ? { [GEOHASH_GRID]: { geohash_grid: { field: geoField, precision: geohashPrecision } } }
+          : {};
 
       let response: Search_Response;
       try {
@@ -129,7 +183,8 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
           index: indexName,
           body: {
             query: { bool: { must: [queryFor(request)], filter } },
-            aggs: aggregations,
+            aggs: { ...aggregations, ...geohashGrid },
+            highlight,
             sort: sortFor(request),
             from: request.offset,
             size: request.limit,
@@ -150,10 +205,14 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
 
       return {
         total: (hits.total as { value: number }).value,
-        hits: hits.hits.map(({ _id, _score }) => ({
-          id: _id as string,
-          ...(typeof _score === 'number' && { searchExtra: { score: _score } }),
-        })),
+        hits: hits.hits.map(({ _id, _score, highlight: highlighted }) => {
+          const searchExtra = {
+            ...(typeof _score === 'number' && { score: _score }),
+            ...(highlighted && Object.keys(highlighted).length > 0 && { highlight: highlighted }),
+          };
+
+          return { id: _id as string, ...(Object.keys(searchExtra).length > 0 && { searchExtra }) };
+        }),
         facets: Object.fromEntries(
           facets.map(([name]) => [
             name,
@@ -165,6 +224,11 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
             ),
           ]),
         ),
+        ...(GEOHASH_GRID in buckets && {
+          geohashGrid: Object.fromEntries(
+            (buckets[GEOHASH_GRID] as { buckets: TermsBucket[] }).buckets.map(({ key, doc_count }) => [key, doc_count]),
+          ),
+        }),
       };
     },
 

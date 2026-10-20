@@ -81,6 +81,42 @@ mapping, and throws, naming the field, if it exists with another, so a changed d
 Delete the index and index your entities again to apply a change. `index` doesn't check that the entities exist.
 
 A basic query is a fuzzy `multi_match` over the basic fields, boosted by weight; an empty query matches every visible
-entity. Totals are exact, and an empty query keeps the same order across pages. A query OpenSearch rejects is a 422.
+entity. Totals are exact, and an empty query keeps the same order across pages. Each hit's `searchExtra` has its score
+and the highlighted matches in its basic and advanced fields. A query OpenSearch rejects is a 422.
+
+## Dates
+
+A `date` value is stored as the first UTC instant of what it names, so `"2001"` is `2001-01-01T00:00:00Z` and a
+date-time with no offset is UTC.
+
+A `date` or `number` filter takes exact values, an inclusive range `{ gte, lte }` (either bound may be left out), or an
+array of ranges, any of which matches:
+
+```json
+{ "filters": { "datePublished": [{ "gte": "2001-01-01", "lte": "2001-12-31" }], "pages": { "gte": 10 } } }
+```
+
+Date bounds and exact dates are a `YYYY-MM-DD` date or an RFC 3339 date-time, in UTC unless they carry an offset. A
+calendar date covers its whole UTC day, so the year range above matches an entity dated `2001`, and the exact value
+`"2001-12-31"` matches any instant that day. A date-time is that instant alone. Number bounds are JSON numbers and
+exact numbers are numeric strings.
+
+A partial date (`2001`, `2001-12`) as a bound or exact value, a bound of the wrong type, `gte` above `lte`, a range
+mixed with exact values, and any range on a `string` or `boolean` filter are a 400 `VALIDATION_ERROR` naming the filter.
+
+A `date` facet has one bucket per UTC year with matches, named `"YYYY"` and ordered by year, so an entity dated
+`2001-12-31T23:30:00-01:00` counts under `"2002"`.
+
+## Geo
+
+Declaring a `geo` field publishes `geo: { supported: true }` in `GET /capabilities`. Each entity has at most one
+point, `{ lat, lng }`.
+
+- `boundingBox: { topRight, bottomLeft }` keeps only entities whose point is inside. A `bottomLeft.lng` above
+  `topRight.lng` crosses the antimeridian; a `bottomLeft.lat` above `topRight.lat` is a 400.
+- `geohashPrecision` (1 to 12) adds a `geohashGrid` to the response: the matching entities in the box counted per
+  geohash cell at that precision. It needs a `boundingBox`.
+
+Without a `geo` field, either parameter is a 400 `VALIDATION_ERROR`.
 
 [Search](/strategies/search/) describes how a search runs end to end.

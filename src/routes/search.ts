@@ -3,19 +3,18 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { type SearchBackend, SearchQueryError, type SearchRequest, type SearchResult } from '../search/backend.js';
+import { boundingBoxSchema, filterValueSchema, geoViolations, splitFilters } from '../search/requestFilters.js';
 import { applyTransformers, authoriseEntities } from '../transformers/default.js';
 import type { AccessFunction } from '../types/access.js';
 import type { EntityTransformer } from '../types/transformers.js';
 import type { EntityVisibilityFilter, SearchVisibilityFilter } from '../types/visibility.js';
 import { createError, createValidationError, ERROR_CODES } from '../utils/errors.js';
 
-const pointSchema = z.object({ lat: z.number(), lng: z.number() });
-
 const searchParamsSchema = z.object({
   searchType: z.enum(['basic', 'advanced']).default('basic'),
   query: z.string(),
-  filters: z.record(z.string(), z.array(z.string())).default({}),
-  boundingBox: z.object({ topRight: pointSchema, bottomLeft: pointSchema }).optional(),
+  filters: z.record(z.string(), filterValueSchema).default({}),
+  boundingBox: boundingBoxSchema.optional(),
   geohashPrecision: z.number().int().min(1).max(12).optional(),
   limit: z.number().int().min(1).max(1000).default(100),
   offset: z.number().int().min(0).default(0),
@@ -65,12 +64,17 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
       },
     },
     async (request, reply) => {
-      const problems = violations(request.body);
+      const { filters, violations: filterProblems } = splitFilters(capabilities.filters, request.body.filters);
+      const problems = [
+        ...violations(request.body),
+        ...filterProblems,
+        ...geoViolations(capabilities.geo, request.body),
+      ];
       if (problems.length > 0) {
         return reply.code(400).send(createValidationError('The request parameters are invalid', problems));
       }
 
-      const { searchType, query, filters, boundingBox, geohashPrecision, limit, offset, sort, order } = request.body;
+      const { searchType, query, boundingBox, geohashPrecision, limit, offset, sort, order } = request.body;
 
       if (searchType === 'advanced' && query.trim() !== '') {
         const message = "Advanced queries aren't supported yet";
@@ -86,7 +90,7 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
 
       const searchRequest: SearchRequest = {
         ...(searchType === 'basic' ? { searchType, query } : { searchType, query: { type: 'all' } }),
-        filters: { terms: filters, ranges: {} },
+        filters,
         ...(boundingBox && { boundingBox }),
         ...(geohashPrecision !== undefined && { geohashPrecision }),
         limit,
