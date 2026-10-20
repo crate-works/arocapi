@@ -5,6 +5,7 @@ import {
   AllVisibleEntityFilter,
   AllVisibleSearchFilter,
   type FileHandler,
+  OpenSearchBackend,
   type Options,
   type RoCrateHandler,
 } from 'arocapi';
@@ -16,7 +17,10 @@ declare const roCrateHandler: RoCrateHandler;
 
 export const options: Options = {
   prisma: new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) }),
-  opensearch: new Client({ node: process.env.OPENSEARCH_URL }),
+  search: OpenSearchBackend({
+    client: new Client({ node: process.env.OPENSEARCH_URL }),
+    fields: { name: { type: 'text', weight: 2 }, description: { type: 'text' } },
+  }),
   fileHandler,
   roCrateHandler,
   entityVisibilityFilter: AllVisibleEntityFilter,

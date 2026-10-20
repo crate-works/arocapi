@@ -30,8 +30,9 @@ Returns a Prisma `EntityWhereInput`. arocapi combines it with `AND` into every d
 
 ## `searchVisibilityFilter`
 
-Returns an OpenSearch query. `POST /search` adds it as a `bool` filter beside your query builder's query, so a custom
-[query builder](/configuration/search/#querybuilderclass) can't bypass it.
+Returns an OpenSearch query. `POST /search` passes it to the [search backend](/configuration/search/) as the
+request's `visibility`, and `OpenSearchBackend` adds it as a `bool` filter beside the query, so it applies to the hits,
+the total and the facets.
 
 If the two filters disagree, search drops any hit the entity filter hides and logs a warning. The page can then be
 shorter than `limit`, and `total` still counts the dropped hits.
@@ -40,9 +41,9 @@ For a public repository, use the exported filters that make every entity visible
 
 <Code code={accessPublic} lang="ts" />
 
-To hide whole collections, such as ones withdrawn from publication, build both filters from the same list. `id` and
-`rootCollection` are `keyword` fields in the [index mapping](/getting-started/opensearch/#create-the-index), so `terms`
-matches them exactly:
+To hide whole collections, such as ones withdrawn from publication, build both filters from the same list. `id` is
+always indexed, and `rootCollection` needs declaring as a `keyword` field, with no role, so `terms` matches them
+exactly:
 
 <Code code={visibilityCollections} lang="ts" />
 

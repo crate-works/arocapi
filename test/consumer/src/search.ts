@@ -1,8 +1,19 @@
 // Type-checked against the packed tarball by scripts/check-consumer-types.sh, never run
 import type { Client } from '@opensearch-project/opensearch';
-import { type BackendSearchCapability, capabilitiesFromFields, OpenSearchBackend, type SearchDocument } from 'arocapi';
+import {
+  type BackendSearchCapability,
+  capabilitiesFromFields,
+  OpenSearchBackend,
+  PostgresBackend,
+  type PostgresClient,
+  type SearchBackend,
+  type SearchDocument,
+  SearchQueryError,
+  type SearchResult,
+} from 'arocapi';
 
 declare const client: Client;
+declare const prisma: PostgresClient;
 
 const fields = {
   name: { type: 'text', sort: true },
@@ -49,3 +60,31 @@ export const inline = OpenSearchBackend({ client, fields: { pages: { type: 'numb
   // @ts-expect-error pages is a number
   { id: 'http://example.com/1', pages: '12' },
 ]);
+
+// The reference backends satisfy the contract
+export const openSearchBackend: SearchBackend = backend;
+export const postgresBackend: Omit<SearchBackend, 'search'> = PostgresBackend({ prisma, fields });
+
+// A custom backend is an object literal
+export const custom: SearchBackend = {
+  capabilities: { filters: {}, facets: {}, sorts: {}, searchTypes: { basic: {} }, geo: { supported: false } },
+  search: async (request): Promise<SearchResult> => {
+    if (request.searchType === 'basic' && request.query.length > 100) {
+      throw new SearchQueryError('Too long');
+    }
+
+    return { total: 1, hits: [{ id: 'http://example.com/1', searchExtra: { score: 1 } }] };
+  },
+  index: async () => {
+    throw new Error('Read-only');
+  },
+  remove: async () => {
+    throw new Error('Read-only');
+  },
+};
+
+export const noTotal: SearchBackend = {
+  ...custom,
+  // @ts-expect-error a result needs an exact total
+  search: async () => ({ hits: [] }),
+};

@@ -1,4 +1,3 @@
-import type { Client } from '@opensearch-project/opensearch';
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 import { mockDeep, mockReset } from 'vitest-mock-extended';
@@ -8,11 +7,9 @@ import { setupValidation } from '../../utils/validation.js';
 
 export let fastify: FastifyInstance;
 export const prisma = mockDeep<PrismaClient>();
-export const opensearch = mockDeep<Client>();
 
 export const fastifyBefore = async () => {
   mockReset(prisma);
-  mockReset(opensearch);
 
   fastify = Fastify({ logger: false });
 

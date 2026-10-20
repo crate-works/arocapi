@@ -21,7 +21,7 @@ Every push to `main` publishes a `beta` prerelease. Read `RELEASING.md` before m
 
 ## Architecture
 
-This is a Fastify plugin that registers routes for entities, files, search, and RO-Crate metadata. Consumers register it with required configuration: `prisma`, `opensearch`, `entityVisibilityFilter`, `searchVisibilityFilter`, `access`, `fileHandler`, `roCrateHandler`.
+This is a Fastify plugin that registers routes for entities, files, search, and RO-Crate metadata. Consumers register it with required configuration: `prisma`, `search`, `entityVisibilityFilter`, `searchVisibilityFilter`, `access`, `fileHandler`, `roCrateHandler`.
 
 **Visibility**: Every query is filtered by the consumer's `entityVisibilityFilter` (Prisma) and `searchVisibilityFilter` (OpenSearch), so hidden entities never appear in results, totals or facets. Visibility guards the Record, runs before access, and is separate from it. See `docs/adr/0001-entity-visibility-filters.md`.
 
@@ -29,7 +29,7 @@ This is a Fastify plugin that registers routes for entities, files, search, and 
 
 **Transformation pipeline**: Every entity/file response flows through: base transformer → library attaches `access` → optional entity/file transformers (chained). This is the core extension mechanism.
 
-**Search**: `OpensearchQueryBuilder` in `src/utils/queryBuilder.ts` builds OpenSearch queries. Consumers can subclass it and pass via `queryBuilderClass` option to customise query building, aggregations, and sorting.
+**Search**: `/search` goes through the consumer's `search: SearchBackend` (`src/search/backend.ts`). The route validates the request against `backend.capabilities`, the backend returns ordered ids, an exact total and facets, and the route loads Records, attaches access and runs transformers. `OpenSearchBackend` (`src/search/opensearch.ts`) and `PostgresBackend` are the reference backends, configured by field declarations (`src/search/fields.ts`). See `docs/adr/0003-pluggable-search-backends.md`.
 
 **Prisma**: Uses folder-based schema (`prisma/` directory with `prisma.config.ts`). Models in `prisma/models/`. Generated client output goes to `src/generated/prisma/`.
 

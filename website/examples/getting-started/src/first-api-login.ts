@@ -12,7 +12,7 @@ import type { FastifyInstance } from 'fastify';
 // Unchanged from the version above
 declare const fastify: FastifyInstance;
 declare const prisma: Options['prisma'];
-declare const opensearch: Options['opensearch'];
+declare const search: Options['search'];
 declare const fileHandler: FileHandler;
 declare const roCrateHandler: RoCrateHandler;
 
@@ -30,7 +30,7 @@ const access = LicenceAccess({
 
 await fastify.register(arocapi, {
   prisma,
-  opensearch,
+  search,
   entityVisibilityFilter: AllVisibleEntityFilter,
   searchVisibilityFilter: AllVisibleSearchFilter,
   access,

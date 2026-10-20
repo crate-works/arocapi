@@ -1,6 +1,7 @@
 import { Client } from '@opensearch-project/opensearch';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { describeSearchBackendWrites } from '../test/helpers/searchBackendWrite.js';
+import { SearchQueryError, type SearchRequest } from './backend.js';
 import type { FieldDeclarations } from './fields.js';
 import { OpenSearchBackend } from './opensearch.js';
 
@@ -113,6 +114,70 @@ describe('OpenSearchBackend', () => {
       await expect(OpenSearchBackend({ client, fields, indexName }).remove(['http://example.com/1'])).resolves.toBe(
         undefined,
       );
+    });
+  });
+
+  describe('search', () => {
+    const request = (overrides: Partial<SearchRequest> = {}) =>
+      ({
+        searchType: 'basic',
+        query: '',
+        filters: { terms: {}, ranges: {} },
+        limit: 10,
+        offset: 0,
+        sort: 'relevance',
+        order: 'asc',
+        visibility: { match_all: {} },
+        ...overrides,
+      }) as SearchRequest;
+
+    it('gives each relevance hit its score in searchExtra', async () => {
+      const backend = OpenSearchBackend({ client, fields, indexName });
+      await backend.createIndex();
+      await backend.index([{ id: 'http://example.com/1', name: 'Kangaroo' }]);
+
+      const { hits } = await backend.search(request({ query: 'kangaroo' }));
+
+      expect(hits).toEqual([{ id: 'http://example.com/1', searchExtra: { score: expect.any(Number) } }]);
+    });
+
+    it('leaves out searchExtra for a hit with no score', async () => {
+      const backend = OpenSearchBackend({
+        client,
+        fields: { ...fields, name: { type: 'text', sort: true } },
+        indexName,
+      });
+      await backend.createIndex();
+      await backend.index([{ id: 'http://example.com/1', name: 'Kangaroo' }]);
+
+      const { hits } = await backend.search(request({ sort: 'name' }));
+
+      expect(hits).toEqual([{ id: 'http://example.com/1' }]);
+    });
+
+    it('matches nothing for a basic query when no field is in basic search', async () => {
+      const backend = OpenSearchBackend({ client, fields: { code: { type: 'keyword' } }, indexName });
+      await backend.createIndex();
+      await backend.index([{ id: 'http://example.com/1', code: 'kangaroo' }]);
+
+      expect((await backend.search(request({ query: 'kangaroo' }))).total).toBe(0);
+      expect((await backend.search(request({ query: ' ' }))).total).toBe(1);
+    });
+
+    it('throws a SearchQueryError for a query OpenSearch rejects', async () => {
+      const backend = OpenSearchBackend({ client, fields: { pages: { type: 'number', filter: true } }, indexName });
+      await backend.createIndex();
+
+      const search = backend.search(request({ filters: { terms: { pages: ['many'] }, ranges: {} } }));
+
+      await expect(search).rejects.toBeInstanceOf(SearchQueryError);
+    });
+
+    it('rethrows any other OpenSearch error', async () => {
+      const search = OpenSearchBackend({ client, fields, indexName }).search(request());
+
+      await expect(search).rejects.toThrow();
+      await expect(search).rejects.not.toBeInstanceOf(SearchQueryError);
     });
   });
 });

@@ -1,0 +1,97 @@
+---
+title: Search backend
+description: The SearchBackend contract, for writing your own backend.
+sidebar:
+  order: 4
+---
+
+import { Code } from '@astrojs/starlight/components';
+import searchBackendCustom from '@examples/reference/search-backend-custom.ts?raw';
+
+A search backend is a plain object satisfying the exported `SearchBackend` interface, passed as the
+[`search`](/configuration/search/) option. `OpenSearchBackend` is one; your own is an object literal typed
+`SearchBackend`.
+
+```ts
+interface SearchBackend {
+  readonly capabilities: BackendSearchCapability;
+  search(request: SearchRequest, context: RequestContext): Promise<SearchResult>;
+  index(docs: SearchDocument[], options?: { tx?: unknown }): Promise<void>;
+  remove(ids: string[]): Promise<void>;
+}
+```
+
+The contract has no lifecycle methods: you own any client and its connections.
+
+## `capabilities`
+
+What `GET /capabilities` publishes as `search`, and the only thing arocapi validates requests against:
+
+```ts
+type BackendSearchCapability = {
+  filters: Record<string, { type: 'string' | 'date' | 'number' | 'boolean'; label?: string }>;
+  facets: Record<string, { label?: string }>;
+  sorts: Record<string, { label?: string }>;
+  searchTypes: { basic: {}; advanced?: { fields: Record<string, { label?: string }> } };
+  geo: { supported: boolean };
+};
+```
+
+`capabilitiesFromFields(fields)` derives it from [field declarations](/configuration/search/#fields), publishing only
+fields with a role. You can also write it directly. `relevance` is always a sort and isn't listed.
+
+## `search(request, context)`
+
+arocapi validates and normalises the request first, so the backend only ever receives a valid one. An undeclared
+filter key, sort or search type is a 400 before the backend is called. `SearchRequest` has:
+
+| Field              | Type                                          | Purpose                                                          |
+| ------------------ | --------------------------------------------- | ---------------------------------------------------------------- |
+| `searchType`       | `basic` or `advanced`                         | A declared search type.                                          |
+| `query`            | string for `basic`, `AdvancedQuery` tree for `advanced` | A basic query is the raw text, for the backend to interpret its own way. |
+| `filters.terms`    | `Record<string, string[]>`                    | Exact-term filters: any value within a field, every field.       |
+| `filters.ranges`   | `Record<string, { gte?, lte? }>`               | Range filters, with date bounds as UTC instants.                 |
+| `boundingBox`      | `{ topRight, bottomLeft }`, optional          | Only when `geo.supported`.                                       |
+| `geohashPrecision` | integer, optional                             | Only when `geo.supported`.                                       |
+| `limit`, `offset`  | integers                                      | The page.                                                        |
+| `sort`, `order`    | a declared sort or `relevance`; `asc` or `desc` | `relevance` is best match first, stable across pages for an empty query. |
+| `visibility`       | the [search visibility filter](/configuration/visibility/#searchvisibilityfilter)'s result | Already resolved, so the backend never calls consumer code. |
+
+`context` is the request context, `{ request, fastify }`.
+
+The backend applies `visibility` to the hits, the total and the facets, and returns a `SearchResult`:
+
+```ts
+type SearchResult = {
+  total: number; // exact
+  hits: { id: string; searchExtra?: { score?: number; highlight?: Record<string, string[]> } }[]; // ordered
+  facets?: Record<string, { name: string; count: number }[]>;
+  geohashGrid?: Record<string, number>;
+};
+```
+
+Facet buckets are named by the value as a string and ordered by count, then name. arocapi then:
+
+- loads each hit's Record from the database under `entityVisibilityFilter`, dropping (and logging) any it can't load;
+- attaches `access`, runs the entity transformers and passes `searchExtra` through unchanged;
+- fills in an empty list for any declared facet the backend left out;
+- reports the time spent in `search` as `searchTime`.
+
+### Errors
+
+Throw the exported `SearchQueryError` for a query you can't run, including your engine's own limits. arocapi answers
+422 `VALIDATION_ERROR` with its message. Any other error is a 500, logged with the real error.
+
+## `index(docs, options?)` and `remove(ids)`
+
+`index` upserts a batch of [search documents](/configuration/search/#search-documents) idempotently, and `remove` is
+idempotent. Each entity must exist in the database before its document is indexed; a hit whose entity doesn't exist
+is dropped from results. `options.tx` is for a backend that writes inside the consumer's database transaction. A
+read-only backend throws from both.
+
+## Example
+
+A read-only backend over an in-memory list. It ignores `visibility`, so it only suits a repository using
+`AllVisibleSearchFilter`:
+
+<Code code={searchBackendCustom} lang="ts" />

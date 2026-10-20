@@ -69,7 +69,7 @@
     "dev:start": "node --watch --env-file=.env dist/index.dev.js",
     "dev:clean": "rm -rf dist",
     "dbconsole": "docker compose exec db psql -U postgres catalog",
-    "load-test-data": "tsx src/scripts/loadEntities.ts",
+    "load-test-data": "tsx scripts/loadEntities.ts",
     "lint:biome": "biome check",
     "lint:types": "tsc --noEmit",
     "lint:examples": "tsc --emitDeclarationOnly && tsc -p website/examples",

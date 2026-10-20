@@ -9,7 +9,9 @@ import arocapi, {
   AllVisibleEntityFilter,
   AllVisibleSearchFilter,
   type EntityTransformer,
+  type FieldDeclarations,
   type FileHandler,
+  OpenSearchBackend,
   type RoCrateHandler,
 } from './app.js';
 import type { Entity, File } from './generated/prisma/client.js';
@@ -26,6 +28,17 @@ if (!process.env.OPENSEARCH_URL) {
 }
 const opensearchUrl = process.env.OPENSEARCH_URL;
 const opensearch = new Client({ node: opensearchUrl });
+
+// Keep in step with example/data/seed.ts and scripts/loadEntities.ts
+const fields = {
+  name: { type: 'text', weight: 2, sort: true, label: 'Name' },
+  description: { type: 'text' },
+  entityType: { type: 'keyword', facet: true, label: 'Type' },
+  inLanguage: { type: 'keyword', facet: true, label: 'Language' },
+  mediaType: { type: 'keyword', facet: true, label: 'Media type' },
+  communicationMode: { type: 'keyword', facet: true, label: 'Communication mode' },
+  location: { type: 'geo' },
+} satisfies FieldDeclarations;
 
 const fileHandler: FileHandler = {
   head: async (file: File) => {
@@ -176,7 +189,7 @@ const fastify = Fastify({
 });
 fastify.register(arocapi, {
   prisma,
-  opensearch,
+  search: OpenSearchBackend({ client: opensearch, fields }),
   fileHandler,
   roCrateHandler,
   access: AllPublicAccess,

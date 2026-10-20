@@ -40,8 +40,8 @@ handlers on the root instance:
 
 To report a client error from your own code, throw an error with a 4xx `statusCode` and `expose: true`, such as those
 from `fastify.httpErrors`. Fastify's own errors, whose `code` starts with `FST_` (such as invalid JSON or a body that is
-too large), also keep their 4xx status. Other errors answer 500, even with a 4xx status (such as an OpenSearch
-`ResponseError` escaping your route), so internal details don't reach clients.
+too large), also keep their 4xx status. Other errors answer 500, even with a 4xx status (such as a database or
+search engine error escaping your route), so internal details don't reach clients.
 
 <Code code={httpCustomError} lang="ts" />
 

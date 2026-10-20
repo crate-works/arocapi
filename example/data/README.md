@@ -167,7 +167,7 @@ pnpm run seed
 This will:
 1. Clear existing entities from the database
 2. Load both collections and all items
-3. Create OpenSearch index with proper mappings
+3. Create the OpenSearch index from the search field declarations
 4. Index all entities for search
 
 ### Regenerating WAV Files
@@ -281,13 +281,13 @@ Entities are stored in the `Entity` table with:
 
 Note: RO-Crate metadata is served via the `/entity/:id/rocrate` endpoint using the configured `roCrateHandler`, not stored in the database.
 
-### OpenSearch Mappings
+### Search fields
 
-The search index includes:
+`seed.ts` declares the search fields and creates the index with `OpenSearchBackend`'s `createIndex()`:
 
-- Keyword fields: `rocrateId`, `entityType`, `memberOf`, `inLanguage`
 - Text fields: `name`, `description`
-- Structured fields: `location` (geo_point)
+- Facets: `entityType`, `inLanguage`, `mediaType`, `communicationMode`
+- Geo: `location`
 
 ## References
 

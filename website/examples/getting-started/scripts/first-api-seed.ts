@@ -1,12 +1,11 @@
 import { resolve } from 'node:path';
-import { Client } from '@opensearch-project/opensearch';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client.ts';
+import { opensearch, search } from '../src/search.ts';
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
 });
-const opensearch = new Client({ node: process.env.OPENSEARCH_URL });
 
 const licence = 'https://creativecommons.org/licenses/by/4.0/';
 const collectionId = 'https://example.org/collection';
@@ -49,9 +48,8 @@ await prisma.file.create({
   },
 });
 
-await opensearch.bulk({
-  body: entities.flatMap((entity) => [{ index: { _index: 'entities', _id: entity.id } }, entity]),
-  refresh: true,
-});
+// Each entity must exist before its search document is indexed
+await search.index(entities.map(({ id, name, description, entityType }) => ({ id, name, description, entityType })));
 
 await prisma.$disconnect();
+await opensearch.close();

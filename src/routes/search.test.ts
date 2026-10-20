@@ -1,959 +1,353 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { fastify, fastifyAfter, fastifyBefore, opensearch, prisma } from '../test/helpers/fastify.js';
+import type { BackendSearchCapability, SearchRequest, SearchResult } from '../search/backend.js';
+import { SearchQueryError } from '../search/backend.js';
+import { fakeSearchBackend } from '../test/helpers/fakeSearchBackend.js';
+import { fastify, fastifyAfter, fastifyBefore, prisma } from '../test/helpers/fastify.js';
+import type { AuthorisedEntity } from '../transformers/default.js';
+import type { EntityTransformer } from '../types/transformers.js';
 import { AllPublicAccess } from '../utils/access.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
-import { OpensearchQueryBuilder } from '../utils/queryBuilder.js';
 import { AllVisibleEntityFilter, AllVisibleSearchFilter } from '../utils/visibility.js';
 import searchRoute from './search.js';
 
-describe('Search Route', () => {
-  beforeEach(async () => {
-    await fastifyBefore();
-    await fastify.register(searchRoute, {
-      entityVisibilityFilter: AllVisibleEntityFilter,
-      searchVisibilityFilter: AllVisibleSearchFilter,
-      prisma,
-      opensearch,
-      access: AllPublicAccess,
-      queryBuilder: new OpensearchQueryBuilder(),
-    });
+const entity = (n: number) => ({
+  id: `http://example.com/entity/${n}`,
+  name: `Entity ${n}`,
+  description: `Entity number ${n}`,
+  entityType: 'http://pcdm.org/models#Object',
+  memberOf: null,
+  rootCollection: null,
+  metadataLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
+  contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
+  meta: {},
+  createdAt: new Date('2024-01-01'),
+  updatedAt: new Date('2024-01-01'),
+});
+
+const capabilities = {
+  filters: { inLanguage: { type: 'string' as const }, open: { type: 'boolean' as const } },
+  facets: { inLanguage: { label: 'Language' }, open: {} },
+  sorts: { name: { label: 'Name' } },
+};
+
+type SearchBody = {
+  total: number;
+  searchTime: number;
+  entities: (AuthorisedEntity & { searchExtra?: unknown })[];
+  facets: Record<string, { name: string; count: number }[]>;
+  geohashGrid?: Record<string, number>;
+};
+
+type Setup = {
+  searchTypes?: BackendSearchCapability['searchTypes'];
+  respond?: (request: SearchRequest) => SearchResult | Promise<SearchResult>;
+  entityTransformers?: EntityTransformer[];
+  searchVisibilityFilter?: () => unknown;
+  entityVisibilityFilter?: () => object;
+};
+
+const setup = async ({
+  searchTypes,
+  respond,
+  entityTransformers,
+  searchVisibilityFilter,
+  entityVisibilityFilter,
+}: Setup = {}) => {
+  const fake = fakeSearchBackend({ ...capabilities, ...(searchTypes && { searchTypes }) }, respond);
+  await fastifyBefore();
+  prisma.entity.findMany.mockResolvedValue([]);
+  await fastify.register(searchRoute, {
+    prisma,
+    search: fake.backend,
+    access: AllPublicAccess,
+    entityTransformers,
+    entityVisibilityFilter: entityVisibilityFilter ?? AllVisibleEntityFilter,
+    // biome-ignore lint/suspicious/noExplicitAny: the interim filter is any OpenSearch query
+    searchVisibilityFilter: (searchVisibilityFilter ?? AllVisibleSearchFilter) as any,
   });
 
+  return fake;
+};
+
+const search = (payload: object) => fastify.inject({ method: 'POST', url: '/search', payload });
+
+describe('Search Route', () => {
   afterEach(async () => {
     await fastifyAfter();
   });
 
-  describe('POST /search', () => {
-    it('should perform basic search successfully', async () => {
-      const mockEntities = [
+  describe('the request the backend receives', () => {
+    it('fills in defaults', async () => {
+      const { requests } = await setup();
+
+      const response = await search({ query: 'test' });
+
+      expect(response.statusCode).toBe(200);
+      expect(requests).toEqual([
         {
-          id: 'http://example.com/entity/1',
-          name: 'Test Entity 1',
-          description: 'A test entity',
-          entityType: 'http://pcdm.org/models#Collection',
-          memberOf: null,
-          rootCollection: null,
-          metadataLicenseId: null,
-          contentLicenseId: null,
-          createdAt: new Date('2024-01-01'),
-          updatedAt: new Date('2024-01-01'),
-        },
-        {
-          id: 'http://example.com/entity/2',
-          name: 'Test Entity 2',
-          description: 'Another test entity',
-          entityType: 'http://pcdm.org/models#Object',
-          memberOf: null,
-          rootCollection: null,
-          metadataLicenseId: null,
-          contentLicenseId: null,
-          createdAt: new Date('2024-01-01'),
-          updatedAt: new Date('2024-01-01'),
-        },
-      ];
-
-      const mockSearchResponse = {
-        body: {
-          took: 10,
-          hits: {
-            total: { value: 2 },
-            hits: [
-              {
-                _score: 1.5,
-                _source: {
-                  id: 'http://example.com/entity/1',
-                },
-                highlight: {
-                  name: ['<em>Test</em> Entity 1'],
-                },
-              },
-              {
-                _score: 1.2,
-                _source: {
-                  id: 'http://example.com/entity/2',
-                },
-                highlight: {
-                  description: ['Another <em>test</em> entity'],
-                },
-              },
-            ],
-          },
-          aggregations: {
-            entityType: {
-              buckets: [
-                { key: 'http://pcdm.org/models#Collection', doc_count: 1 },
-                { key: 'http://pcdm.org/models#Object', doc_count: 1 },
-              ],
-            },
-          },
-        },
-      };
-
-      // @ts-expect-error TS is looking at the wrong function signature
-      opensearch.search.mockResolvedValue(mockSearchResponse);
-      // @ts-expect-error TS is looking at the wrong function signature
-      prisma.entity.findMany.mockResolvedValue(mockEntities);
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'test',
           searchType: 'basic',
-        },
-      });
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
-      expect(body).toMatchSnapshot();
-
-      // Verify database was queried with correct ids
-      expect(prisma.entity.findMany).toHaveBeenCalledWith({
-        where: {
-          AND: [{ id: { in: ['http://example.com/entity/1', 'http://example.com/entity/2'] } }, {}],
-        },
-        include: { file: { select: { id: true } } },
-      });
-
-      expect(opensearch.search).toHaveBeenCalledWith({
-        index: 'entities',
-        body: {
-          query: {
-            bool: {
-              filter: [{ match_all: {} }],
-              must: [
-                {
-                  bool: {
-                    must: [
-                      {
-                        multi_match: {
-                          query: 'test',
-                          fields: ['name^2', 'description'],
-                          type: 'best_fields',
-                          fuzziness: 'AUTO',
-                          zero_terms_query: 'all',
-                        },
-                      },
-                    ],
-                    filter: [],
-                  },
-                },
-              ],
-            },
-          },
-          aggs: {
-            inLanguage: { terms: { field: 'inLanguage.keyword', size: 20 } },
-            mediaType: { terms: { field: 'mediaType.keyword', size: 20 } },
-            communicationMode: { terms: { field: 'communicationMode.keyword', size: 20 } },
-            entityType: { terms: { field: 'entityType.keyword', size: 20 } },
-          },
-          highlight: {
-            fields: {
-              name: {},
-              description: {},
-            },
-          },
-          sort: undefined,
-          from: 0,
-          size: 100,
-        },
-      });
-    });
-
-    it('should perform advanced search with query string', async () => {
-      const mockSearchResponse = {
-        body: {
-          took: 5,
-          hits: {
-            total: { value: 0 },
-            hits: [],
-          },
-          aggregations: {},
-        },
-      };
-
-      // @ts-expect-error TS is looking at the wrong function signature
-      opensearch.search.mockResolvedValue(mockSearchResponse);
-      prisma.entity.findMany.mockResolvedValue([]);
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'name:test AND description:entity',
-          searchType: 'advanced',
-        },
-      });
-
-      expect(response.statusCode).toBe(200);
-      expect(opensearch.search).toHaveBeenCalledWith({
-        index: 'entities',
-        body: {
-          query: {
-            bool: {
-              filter: [{ match_all: {} }],
-              must: [
-                {
-                  bool: {
-                    must: [
-                      {
-                        query_string: {
-                          query: 'name:test AND description:entity',
-                          fields: ['name^2', 'description'],
-                          default_operator: 'AND',
-                        },
-                      },
-                    ],
-                    filter: [],
-                  },
-                },
-              ],
-            },
-          },
-          aggs: {
-            inLanguage: { terms: { field: 'inLanguage.keyword', size: 20 } },
-            mediaType: { terms: { field: 'mediaType.keyword', size: 20 } },
-            communicationMode: { terms: { field: 'communicationMode.keyword', size: 20 } },
-            entityType: { terms: { field: 'entityType.keyword', size: 20 } },
-          },
-          highlight: {
-            fields: {
-              name: {},
-              description: {},
-            },
-          },
-          sort: undefined,
-          from: 0,
-          size: 100,
-        },
-      });
-    });
-
-    it('should apply filters correctly', async () => {
-      const mockSearchResponse = {
-        body: {
-          took: 8,
-          hits: {
-            total: { value: 0 },
-            hits: [],
-          },
-          aggregations: {},
-        },
-      };
-
-      // @ts-expect-error TS is looking at the wrong function signature
-      opensearch.search.mockResolvedValue(mockSearchResponse);
-      prisma.entity.findMany.mockResolvedValue([]);
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
           query: 'test',
-          filters: {
-            entityType: ['http://pcdm.org/models#Collection'],
-            inLanguage: ['en', 'fr'],
-          },
+          filters: { terms: {}, ranges: {} },
+          limit: 100,
+          offset: 0,
+          sort: 'relevance',
+          order: 'asc',
+          visibility: { match_all: {} },
         },
+      ]);
+    });
+
+    it('carries exact-term filters, paging, a declared sort and the search visibility filter', async () => {
+      const visibility = { bool: { must_not: { term: { draft: true } } } };
+      const { requests } = await setup({ searchVisibilityFilter: async () => visibility });
+
+      await search({
+        query: 'test',
+        filters: { inLanguage: ['eng', 'nys'], open: ['true'] },
+        limit: 10,
+        offset: 20,
+        sort: 'name',
+        order: 'desc',
       });
 
-      expect(response.statusCode).toBe(200);
-      const expectedFilters = [
+      expect(requests).toEqual([
         {
-          terms: {
-            entityType: ['http://pcdm.org/models#Collection'],
-          },
-        },
-        {
-          terms: {
-            inLanguage: ['en', 'fr'],
-          },
-        },
-      ];
-
-      expect(opensearch.search).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: expect.objectContaining({
-            query: {
-              bool: {
-                filter: [{ match_all: {} }],
-                must: [
-                  expect.objectContaining({
-                    bool: expect.objectContaining({
-                      filter: expectedFilters,
-                    }),
-                  }),
-                ],
-              },
-            },
-          }),
-        }),
-      );
-    });
-
-    it('should handle geospatial search with bounding box', async () => {
-      const mockSearchResponse = {
-        body: {
-          took: 12,
-          hits: {
-            total: { value: 0 },
-            hits: [],
-          },
-          aggregations: {
-            geohash_grid: {
-              buckets: [
-                { key: 'gbsuv', doc_count: 3 },
-                { key: 'gbsvb', doc_count: 1 },
-              ],
-            },
-          },
-        },
-      };
-
-      // @ts-expect-error TS is looking at the wrong function signature
-      opensearch.search.mockResolvedValue(mockSearchResponse);
-      prisma.entity.findMany.mockResolvedValue([]);
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
+          searchType: 'basic',
           query: 'test',
-          boundingBox: {
-            topRight: { lat: 51.5, lng: 0.1 },
-            bottomLeft: { lat: 51.4, lng: 0.0 },
-          },
-          geohashPrecision: 5,
-        },
-      });
-
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body) as { geohashGrid: Record<string, number> };
-      expect(body.geohashGrid).toEqual({
-        gbsuv: 3,
-        gbsvb: 1,
-      });
-
-      expect(opensearch.search).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: expect.objectContaining({
-            query: {
-              bool: {
-                filter: [{ match_all: {} }],
-                must: [
-                  expect.objectContaining({
-                    bool: expect.objectContaining({
-                      filter: [
-                        {
-                          geo_bounding_box: {
-                            location: {
-                              top_left: { lat: 51.5, lon: 0.0 },
-                              bottom_right: { lat: 51.4, lon: 0.1 },
-                            },
-                          },
-                        },
-                      ],
-                    }),
-                  }),
-                ],
-              },
-            },
-            aggs: expect.objectContaining({
-              geohash_grid: {
-                geohash_grid: {
-                  field: 'location',
-                  precision: 5,
-                  bounds: {
-                    top_left: { lat: 51.5, lon: 0.0 },
-                    bottom_right: { lat: 51.4, lon: 0.1 },
-                  },
-                },
-              },
-            }),
-          }),
-        }),
-      );
-    });
-
-    it('should handle pagination and sorting', async () => {
-      const mockSearchResponse = {
-        body: {
-          took: 6,
-          hits: {
-            total: { value: 0 },
-            hits: [],
-          },
-          aggregations: {},
-        },
-      };
-
-      // @ts-expect-error TS is looking at the wrong function signature
-      opensearch.search.mockResolvedValue(mockSearchResponse);
-      prisma.entity.findMany.mockResolvedValue([]);
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'test',
-          limit: 50,
+          filters: { terms: { inLanguage: ['eng', 'nys'], open: ['true'] }, ranges: {} },
+          limit: 10,
           offset: 20,
           sort: 'name',
           order: 'desc',
+          visibility,
         },
+      ]);
+    });
+
+    it('carries a bounding box and geohash precision', async () => {
+      const { requests } = await setup();
+      const boundingBox = { topRight: { lat: -10, lng: 155 }, bottomLeft: { lat: -45, lng: 110 } };
+
+      await search({ query: '', boundingBox, geohashPrecision: 3 });
+
+      expect(requests[0]).toMatchObject({ boundingBox, geohashPrecision: 3 });
+    });
+
+    it('passes the raw basic query through untouched', async () => {
+      const { requests } = await setup();
+
+      await search({ query: '  name: (a OR b) "phrase  ' });
+
+      expect(requests[0].query).toBe('  name: (a OR b) "phrase  ');
+    });
+  });
+
+  describe('validation against capabilities', () => {
+    it.each([
+      ['an undeclared filter key', { filters: { mediaType: ['audio/wav'] } }, '/filters/mediaType'],
+      ['an undeclared sort', { sort: 'createdAt' }, '/sort'],
+      ['an undeclared search type', { searchType: 'advanced' }, '/searchType'],
+    ])('rejects %s with a 400 without searching', async (_problem, payload, field) => {
+      const { requests } = await setup();
+
+      const response = await search({ query: 'test', ...payload });
+
+      expect(response.statusCode).toBe(400);
+      const { error } = response.json<StandardErrorResponse>();
+      expect(error.code).toBe('VALIDATION_ERROR');
+      expect(error.details?.violations).toEqual([expect.objectContaining({ field })]);
+      expect(requests).toHaveLength(0);
+    });
+
+    describe('with advanced search declared', () => {
+      const searchTypes = { basic: {}, advanced: { fields: { name: {} } } };
+
+      it('passes an empty advanced query as one matching everything', async () => {
+        const { requests } = await setup({ searchTypes });
+
+        const response = await search({ searchType: 'advanced', query: ' ' });
+
+        expect(response.statusCode).toBe(200);
+        expect(requests[0]).toMatchObject({ searchType: 'advanced', query: { type: 'all' } });
       });
+
+      it('rejects any other advanced query with a 422 on query', async () => {
+        const { requests } = await setup({ searchTypes });
+
+        const response = await search({ searchType: 'advanced', query: 'name: test' });
+
+        expect(response.statusCode).toBe(422);
+        const { error } = response.json<StandardErrorResponse>();
+        expect(error.code).toBe('VALIDATION_ERROR');
+        expect(error.details?.violations).toEqual([expect.objectContaining({ field: 'query' })]);
+        expect(requests).toHaveLength(0);
+      });
+    });
+
+    it('accepts relevance as a sort', async () => {
+      const { requests } = await setup();
+
+      const response = await search({ query: 'test', sort: 'relevance' });
 
       expect(response.statusCode).toBe(200);
-      expect(opensearch.search).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: expect.objectContaining({
-            from: 20,
-            size: 50,
-            sort: [{ 'name.keyword': 'desc' }],
-          }),
-        }),
-      );
+      expect(requests[0].sort).toBe('relevance');
     });
 
-    it('should return 422 for malformed opensearch query', async () => {
-      const opensearchError = Object.assign(new Error('parsing_exception'), { statusCode: 400 });
-      opensearch.search.mockRejectedValue(opensearchError);
+    it('requires a query', async () => {
+      await setup();
 
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'test',
-          searchType: 'advanced',
-        },
-      });
-
-      expect(response.statusCode).toBe(422);
-      const body = JSON.parse(response.body) as StandardErrorResponse;
-      expect(body.error.code).toBe('VALIDATION_ERROR');
-    });
-
-    it('should handle opensearch errors', async () => {
-      opensearch.search.mockRejectedValue(new Error('OpenSearch connection failed'));
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'test',
-        },
-      });
-
-      expect(response.statusCode).toBe(500);
-      const body = JSON.parse(response.body);
-      expect(body).toMatchSnapshot();
-    });
-
-    it('should hide opensearch errors with other client statuses behind a generic 500', async () => {
-      const opensearchError = Object.assign(new Error('index_not_found_exception: no such index [entities]'), {
-        statusCode: 404,
-      });
-      opensearch.search.mockRejectedValue(opensearchError);
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'test',
-        },
-      });
-
-      expect(response.statusCode).toBe(500);
-      expect(response.json()).toEqual({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } });
-    });
-
-    it('should return 422 for malformed opensearch query', async () => {
-      const error = new Error('parsing_exception') as Error & { statusCode: number };
-      error.statusCode = 400;
-      opensearch.search.mockRejectedValue(error);
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'test',
-        },
-      });
-
-      expect(response.statusCode).toBe(422);
-      const body = JSON.parse(response.body) as StandardErrorResponse;
-      expect(body.error.code).toBe('VALIDATION_ERROR');
-      expect(body.error.message).toBe('parsing_exception');
-    });
-
-    it('should validate required query parameter', async () => {
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {},
-      });
+      const response = await search({});
 
       expect(response.statusCode).toBe(400);
     });
+  });
 
-    it('should skip entities not found in database and log warning', async () => {
-      const mockEntities = [
-        {
-          id: 'http://example.com/entity/1',
-          name: 'Test Entity 1',
-          description: 'A test entity',
-          entityType: 'http://pcdm.org/models#Collection',
-          memberOf: null,
-          rootCollection: null,
-          metadataLicenseId: null,
-          contentLicenseId: null,
-          createdAt: new Date('2024-01-01'),
-          updatedAt: new Date('2024-01-01'),
-        },
-        // Entity 2 is missing from database
-      ];
-
-      const mockSearchResponse = {
-        body: {
-          took: 10,
-          hits: {
-            total: { value: 2 },
-            hits: [
-              {
-                _score: 1.5,
-                _source: {
-                  id: 'http://example.com/entity/1',
-                },
-                highlight: {},
-              },
-              {
-                _score: 1.2,
-                _source: {
-                  id: 'http://example.com/entity/2',
-                },
-                highlight: {},
-              },
-            ],
-          },
-          aggregations: {},
-        },
-      };
-
-      // @ts-expect-error TS is looking at the wrong function signature
-      opensearch.search.mockResolvedValue(mockSearchResponse);
-      // @ts-expect-error TS is looking at the wrong function signature
-      prisma.entity.findMany.mockResolvedValue(mockEntities);
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'test',
+  describe('backend errors', () => {
+    it('answers a SearchQueryError with a 422 carrying its message', async () => {
+      await setup({
+        respond: () => {
+          throw new SearchQueryError('Too many clauses');
         },
       });
 
-      expect(response.statusCode).toBe(200);
-      const body = JSON.parse(response.body);
+      const response = await search({ query: 'test' });
 
-      expect(body).toMatchSnapshot();
+      expect(response.statusCode).toBe(422);
+      expect(response.json<StandardErrorResponse>().error).toEqual({
+        code: 'VALIDATION_ERROR',
+        message: 'Too many clauses',
+      });
     });
 
-    it('should handle missing id in search hit', async () => {
-      const mockSearchResponse = {
-        body: {
-          took: 5,
-          hits: {
-            total: { value: 1 },
-            hits: [
-              {
-                _score: 1.5,
-                _source: {
-                  // Missing id
-                },
-              },
-            ],
-          },
-          aggregations: {},
-        },
-      };
-
-      // @ts-expect-error TS is looking at the wrong function signature
-      opensearch.search.mockResolvedValue(mockSearchResponse);
-      prisma.entity.findMany.mockResolvedValue([]);
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'test',
+    it('answers any other error with a generic 500', async () => {
+      await setup({
+        respond: () => {
+          throw Object.assign(new Error('Connection refused'), { statusCode: 400 });
         },
       });
+
+      const response = await search({ query: 'test' });
 
       expect(response.statusCode).toBe(500);
-      console.log(response.body);
+      expect(response.json<StandardErrorResponse>().error).toEqual({
+        code: 'INTERNAL_ERROR',
+        message: 'Internal server error',
+      });
     });
+  });
 
-    it('should handle id explicitly set to undefined', async () => {
-      const mockSearchResponse = {
-        body: {
-          took: 5,
-          hits: {
-            total: { value: 1 },
-            hits: [
-              {
-                _score: 1.5,
-                _source: {
-                  id: undefined,
-                  name: 'Test Entity',
-                },
-              },
-            ],
-          },
-          aggregations: {},
-        },
-      };
-
-      // @ts-expect-error TS is looking at the wrong function signature
-      opensearch.search.mockResolvedValue(mockSearchResponse);
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'test',
-        },
+  describe('the response', () => {
+    it('returns hits as Records in backend order, with access and searchExtra unchanged', async () => {
+      await setup({
+        respond: () => ({
+          total: 42,
+          hits: [
+            { id: entity(2).id, searchExtra: { score: 2.5, highlight: { name: ['<em>Entity</em> 2'] } } },
+            { id: entity(1).id },
+          ],
+        }),
       });
+      prisma.entity.findMany.mockResolvedValueOnce([entity(1), entity(2)]);
 
-      expect(response.statusCode).toBe(500);
-      const body = JSON.parse(response.body);
-      expect(body).toMatchSnapshot();
-    });
-
-    it('should handle invalid search response with missing hits data', async () => {
-      const mockSearchResponse = {
-        body: {
-          took: 5,
-          // Missing hits object
-        },
-      };
-
-      // @ts-expect-error TS is looking at the wrong function signature
-      opensearch.search.mockResolvedValue(mockSearchResponse);
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'test',
-        },
-      });
-
-      expect(response.statusCode).toBe(500);
-      const body = JSON.parse(response.body) as { error: { code: string; message: string } };
-      expect(body.error.code).toBe('INTERNAL_ERROR');
-      expect(body.error.message).toBe('Internal server error');
-    });
-
-    it('should apply custom entity transformers', async () => {
-      // biome-ignore lint/suspicious/noExplicitAny: fine in tests
-      const customTransformer = async (entity: any) => ({
-        ...entity,
-        tested: true,
-      });
-
-      await fastifyBefore();
-      await fastify.register(searchRoute, {
-        entityVisibilityFilter: AllVisibleEntityFilter,
-        searchVisibilityFilter: AllVisibleSearchFilter,
-        prisma,
-        opensearch,
-        access: AllPublicAccess,
-        entityTransformers: [customTransformer],
-        queryBuilder: new OpensearchQueryBuilder(),
-      });
-
-      const mockEntities = [
-        {
-          id: 'http://example.com/entity/1',
-          name: 'Test Entity 1',
-          description: 'A test entity',
-          entityType: 'http://pcdm.org/models#Collection',
-          memberOf: null,
-          rootCollection: null,
-          metadataLicenseId: null,
-          contentLicenseId: null,
-          createdAt: new Date('2024-01-01'),
-          updatedAt: new Date('2024-01-01'),
-        },
-      ];
-
-      const mockSearchResponse = {
-        body: {
-          took: 10,
-          hits: {
-            total: { value: 1 },
-            hits: [
-              {
-                _score: 1.5,
-                _source: {
-                  id: 'http://example.com/entity/1',
-                },
-                highlight: {},
-              },
-            ],
-          },
-          aggregations: {},
-        },
-      };
-
-      // @ts-expect-error TS is looking at the wrong function signature
-      opensearch.search.mockResolvedValue(mockSearchResponse);
-      // @ts-expect-error TS is looking at the wrong function signature
-      prisma.entity.findMany.mockResolvedValue(mockEntities);
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'test',
-        },
-      });
-
-      const body = JSON.parse(response.body);
+      const response = await search({ query: 'entity' });
+      const body = response.json<SearchBody>();
 
       expect(response.statusCode).toBe(200);
-      expect(body).toMatchSnapshot();
-    });
-
-    it('should handle search response with no aggregations field', async () => {
-      const mockEntities = [
+      expect(body.total).toBe(42);
+      expect(body.entities).toEqual([
         {
-          id: 'http://example.com/entity/1',
-          name: 'Test Entity 1',
-          description: 'A test entity',
-          entityType: 'http://pcdm.org/models#Collection',
-          memberOf: null,
-          rootCollection: null,
-          metadataLicenseId: null,
-          contentLicenseId: null,
-          createdAt: new Date('2024-01-01'),
-          updatedAt: new Date('2024-01-01'),
-        },
-      ];
-
-      const mockSearchResponse = {
-        body: {
-          took: 10,
-          hits: {
-            total: { value: 1 },
-            hits: [
-              {
-                _score: 1.5,
-                _source: {
-                  id: 'http://example.com/entity/1',
-                },
-                highlight: {},
-              },
-            ],
-          },
-          // No aggregations field
-        },
-      };
-
-      // @ts-expect-error TS is looking at the wrong function signature
-      opensearch.search.mockResolvedValue(mockSearchResponse);
-      // @ts-expect-error TS is looking at the wrong function signature
-      prisma.entity.findMany.mockResolvedValue(mockEntities);
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'test',
-        },
-      });
-      const body = JSON.parse(response.body) as { facets?: unknown; geohashGrid?: unknown; entities: unknown[] };
-
-      expect(response.statusCode).toBe(200);
-      expect(body.facets).toBeUndefined();
-      expect(body.geohashGrid).toBeUndefined();
-      expect(body.entities).toHaveLength(1);
-    });
-
-    it('should handle search response with malformed aggregation buckets', async () => {
-      const mockEntities = [
-        {
-          id: 'http://example.com/entity/1',
-          name: 'Test Entity 1',
-          description: 'A test entity',
-          entityType: 'http://pcdm.org/models#Collection',
-          memberOf: null,
-          rootCollection: null,
-          metadataLicenseId: null,
-          contentLicenseId: null,
-          createdAt: new Date('2024-01-01'),
-          updatedAt: new Date('2024-01-01'),
-        },
-      ];
-
-      const mockSearchResponse = {
-        body: {
-          took: 10,
-          hits: {
-            total: { value: 1 },
-            hits: [
-              {
-                _score: 1.5,
-                _source: {
-                  id: 'http://example.com/entity/1',
-                },
-                highlight: {},
-              },
-            ],
-          },
-          aggregations: {
-            entityType: {
-              // buckets is not an array
-              buckets: null,
-            },
-            inLanguage: {
-              // buckets is undefined
-            },
-          },
-        },
-      };
-
-      // @ts-expect-error TS is looking at the wrong function signature
-      opensearch.search.mockResolvedValue(mockSearchResponse);
-      // @ts-expect-error TS is looking at the wrong function signature
-      prisma.entity.findMany.mockResolvedValue(mockEntities);
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'test',
-        },
-      });
-      const body = JSON.parse(response.body) as { facets?: unknown; entities: unknown[] };
-
-      expect(response.statusCode).toBe(200);
-      expect(body.facets).toBeUndefined();
-      expect(body.entities).toHaveLength(1);
-    });
-
-    it('should handle search response with malformed geohash aggregation buckets', async () => {
-      const mockEntities = [
-        {
-          id: 'http://example.com/entity/1',
-          name: 'Test Entity 1',
-          description: 'A test entity',
-          entityType: 'http://pcdm.org/models#Collection',
-          memberOf: null,
-          rootCollection: null,
-          metadataLicenseId: null,
-          contentLicenseId: null,
-          createdAt: new Date('2024-01-01'),
-          updatedAt: new Date('2024-01-01'),
-        },
-      ];
-
-      const mockSearchResponse = {
-        body: {
-          took: 10,
-          hits: {
-            total: { value: 1 },
-            hits: [
-              {
-                _score: 1.5,
-                _source: {
-                  id: 'http://example.com/entity/1',
-                },
-                highlight: {},
-              },
-            ],
-          },
-          aggregations: {
-            geohash_grid: {
-              // buckets is not an array
-              buckets: 'invalid',
-            },
-          },
-        },
-      };
-
-      // @ts-expect-error TS is looking at the wrong function signature
-      opensearch.search.mockResolvedValue(mockSearchResponse);
-      // @ts-expect-error TS is looking at the wrong function signature
-      prisma.entity.findMany.mockResolvedValue(mockEntities);
-
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'test',
-        },
-      });
-      const body = JSON.parse(response.body) as { geohashGrid?: unknown; entities: unknown[] };
-
-      expect(response.statusCode).toBe(200);
-      expect(body.geohashGrid).toBeUndefined();
-      expect(body.entities).toHaveLength(1);
-    });
-
-    it('should return null for memberOf/rootCollection when parent entity not found', async () => {
-      const mockEntities = [
-        {
-          meta: {},
-          id: 'http://example.com/entity/1',
-          name: 'Test Entity 1',
-          description: 'Entity with missing parent',
+          id: entity(2).id,
+          name: 'Entity 2',
+          description: 'Entity number 2',
           entityType: 'http://pcdm.org/models#Object',
-          memberOf: 'http://example.com/entity/deleted',
-          rootCollection: 'http://example.com/entity/deleted',
+          memberOf: null,
+          rootCollection: null,
           metadataLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
           contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
-          createdAt: new Date('2024-01-01'),
-          updatedAt: new Date('2024-01-01'),
+          access: { metadata: true, content: true },
+          searchExtra: { score: 2.5, highlight: { name: ['<em>Entity</em> 2'] } },
         },
-      ];
+        expect.not.objectContaining({ searchExtra: expect.anything() }),
+      ]);
+      expect(body.entities[1].id).toBe(entity(1).id);
+    });
 
-      const mockSearchResponse = {
-        body: {
-          took: 10,
-          hits: {
-            total: { value: 1 },
-            hits: [
-              {
-                _score: 1.5,
-                _source: {
-                  id: 'http://example.com/entity/1',
-                },
-              },
-            ],
-          },
-          aggregations: {},
-        },
-      };
+    it('loads hits under the entity visibility filter', async () => {
+      const hideDrafts = { meta: { path: ['draft'], not: true } };
+      await setup({
+        entityVisibilityFilter: () => hideDrafts,
+        respond: () => ({ total: 1, hits: [{ id: entity(1).id }] }),
+      });
 
-      // @ts-expect-error TS is looking at the wrong function signature
-      opensearch.search.mockResolvedValue(mockSearchResponse);
-      // First findMany returns the entities, second (for reference resolution) returns empty
-      prisma.entity.findMany.mockResolvedValueOnce(mockEntities);
-      prisma.entity.findMany.mockResolvedValueOnce([]);
+      await search({ query: '' });
 
-      const response = await fastify.inject({
-        method: 'POST',
-        url: '/search',
-        payload: {
-          query: 'test',
+      expect(prisma.entity.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { AND: [{ id: { in: [entity(1).id] } }, hideDrafts] } }),
+      );
+    });
+
+    it('drops and logs hits it cannot load', async () => {
+      await setup({ respond: () => ({ total: 2, hits: [{ id: entity(1).id }, { id: entity(2).id }] }) });
+      prisma.entity.findMany.mockResolvedValueOnce([entity(1)]);
+      const warn = vi.spyOn(fastify.log, 'warn');
+
+      const body = (await search({ query: '' })).json<SearchBody>();
+
+      expect(body.total).toBe(2);
+      expect(body.entities.map(({ id }) => id)).toEqual([entity(1).id]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(entity(2).id));
+    });
+
+    it('runs the entity transformers on each hit', async () => {
+      await setup({
+        entityTransformers: [(e) => ({ ...e, name: e.name.toUpperCase() })],
+        respond: () => ({ total: 1, hits: [{ id: entity(1).id, searchExtra: { score: 1 } }] }),
+      });
+      prisma.entity.findMany.mockResolvedValueOnce([entity(1)]);
+
+      const body = (await search({ query: '' })).json<SearchBody>();
+
+      expect(body.entities[0]).toMatchObject({ name: 'ENTITY 1', searchExtra: { score: 1 } });
+    });
+
+    it('includes every declared facet, empty when the backend leaves it out', async () => {
+      await setup({ respond: () => ({ total: 0, hits: [], facets: { inLanguage: [{ name: 'eng', count: 3 }] } }) });
+
+      const body = (await search({ query: '' })).json<SearchBody>();
+
+      expect(body.facets).toEqual({ inLanguage: [{ name: 'eng', count: 3 }], open: [] });
+    });
+
+    it('passes the geohash grid through', async () => {
+      await setup({ respond: () => ({ total: 0, hits: [], geohashGrid: { r3: 2 } }) });
+
+      const body = (await search({ query: '' })).json<SearchBody>();
+
+      expect(body.geohashGrid).toEqual({ r3: 2 });
+    });
+
+    it('omits the geohash grid when the backend gives none', async () => {
+      await setup();
+
+      const body = (await search({ query: '' })).json<SearchBody>();
+
+      expect(body).not.toHaveProperty('geohashGrid');
+    });
+
+    it('times the backend call as searchTime', async () => {
+      await setup({
+        respond: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+
+          return { total: 0, hits: [] };
         },
       });
-      const body = JSON.parse(response.body);
 
-      expect(response.statusCode).toBe(200);
-      expect(body).toMatchSnapshot();
+      const body = (await search({ query: '' })).json<SearchBody>();
+
+      expect(body.searchTime).toBeGreaterThanOrEqual(45);
+      expect(body.searchTime).toBeLessThan(1000);
     });
   });
 });

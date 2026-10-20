@@ -35,18 +35,21 @@ Hidden, Accessible and Denied entities is under [Route by route](/concepts/visib
 
 ## `GET /capabilities`
 
-Declares the API version and the search filters and facets your [query builder](/configuration/search/) supports. The
-same for every request.
+Declares the RO-Crate API version and, as `search`, the [search backend's](/configuration/search/) `capabilities`: the
+filters, facets and sorts clients may use, the search types and whether geo is supported. The same for every request.
 
 ```json
 {
-  "apiVersion": "0.4.0",
+  "apiVersion": "0.5.0",
   "deposit": { "supported": false },
   "tombstonePolicy": "404",
   "extensions": {},
   "search": {
-    "filters": { "inLanguage": { "type": "string" } },
-    "facets": { "inLanguage": {} }
+    "filters": { "inLanguage": { "type": "string", "label": "Language" } },
+    "facets": { "inLanguage": { "label": "Language" } },
+    "sorts": { "name": { "label": "Name" } },
+    "searchTypes": { "basic": {} },
+    "geo": { "supported": false }
   }
 }
 ```
@@ -104,24 +107,24 @@ JSON body:
 
 | Field              | Type                                            | Default     | Purpose                                         |
 | ------------------ | ----------------------------------------------- | ----------- | ----------------------------------------------- |
-| `query`            | string, **required**                            | none        | Search text. Empty matches everything in `basic`. |
-| `searchType`       | `basic`, `advanced`                             | `basic`     | Fuzzy match, or OpenSearch query string syntax. |
-| `filters`          | `Record<string, string[]>`                      | none        | Values per field: any value within a field, every field. |
-| `boundingBox`      | `{ topRight: { lat, lng }, bottomLeft: { lat, lng } }` | none | Only entities whose `location` is inside.     |
-| `geohashPrecision` | integer, 1 to 12                                | none        | Return a geohash grid; needs `boundingBox`.     |
+| `query`            | string, **required**                            | none        | Search text. Empty matches every visible entity. |
+| `searchType`       | a search type in `/capabilities`                | `basic`     | `basic` is free text the backend interprets its own way. |
+| `filters`          | `Record<string, string[]>`                      | none        | Exact values per declared filter: any value within a field, every field. |
+| `boundingBox`      | `{ topRight: { lat, lng }, bottomLeft: { lat, lng } }` | none | Only entities inside, when geo is supported. |
+| `geohashPrecision` | integer, 1 to 12                                | none        | Return a geohash grid, when geo is supported.   |
 | `limit`            | integer, 1 to 1000                              | `100`       | Page size.                                      |
 | `offset`           | integer, 0 or more                              | `0`         | Hits to skip.                                   |
-| `sort`             | `id`, `name`, `createdAt`, `updatedAt`, `relevance` | `relevance` | Sort field.                                 |
+| `sort`             | a sort in `/capabilities`, or `relevance`       | `relevance` | Sort field. `relevance` is best match first.    |
 | `order`            | `asc`, `desc`                                   | `asc`       | Sort direction.                                 |
+
+An undeclared filter key, sort or search type is a 400 `VALIDATION_ERROR`. A query the backend can't run is a 422.
 
 Response:
 
 | Field         | Type                                         | Purpose                                                       |
 | ------------- | -------------------------------------------- | ------------------------------------------------------------- |
-| `total`       | `number`                                     | Matching Visible entities, as counted by OpenSearch.          |
-| `searchTime`  | `number`                                     | OpenSearch time taken, in milliseconds.                       |
-| `entities`    | array                                        | Entities after the entity transformers, each with `searchExtra: { score, highlight }`. |
-| `facets`      | `Record<string, { name, count }[]>`          | One list per bucket aggregation. Left out when there are none. |
-| `geohashGrid` | `Record<string, number>`                     | Counts per geohash. Only with `geohashPrecision` and `boundingBox`. |
-
-Highlights cover `name` and `description`.
+| `total`       | `number`                                     | Matching Visible entities, exact.                             |
+| `searchTime`  | `number`                                     | Time spent in the search backend, in milliseconds.            |
+| `entities`    | array                                        | Entities in hit order after the entity transformers, each with the backend's `searchExtra` (such as `score`) if it gives one. |
+| `facets`      | `Record<string, { name, count }[]>`          | One list per declared facet, ordered by count, then name; empty when nothing matches. |
+| `geohashGrid` | `Record<string, number>`                     | Counts per geohash, when the backend gives them.              |

@@ -1,5 +1,9 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { Client } from '@opensearch-project/opensearch';
+import type { SortOrder } from '@opensearch-project/opensearch/api/_types/_common.js';
+import type { QueryContainer } from '@opensearch-project/opensearch/api/_types/_common.query_dsl.js';
+import type { Search_RequestBody, Search_Response } from '@opensearch-project/opensearch/api/index.js';
+import { type FacetBucket, SearchQueryError, type SearchRequest, type SearchResult } from './backend.js';
 import {
   capabilitiesFromFields,
   type FieldDeclaration,
@@ -33,6 +37,11 @@ const mappingFor = (declaration: FieldDeclaration) => {
   }
 };
 
+const DEFAULT_FACET_SIZE = 20;
+const FACET_ORDER: Record<string, SortOrder>[] = [{ _count: 'desc' }, { _key: 'asc' }];
+
+type TermsBucket = { key: string | number; key_as_string?: string; doc_count: number };
+
 type BulkItem = Record<
   string,
   { _id?: string | null; status: number; error?: { type: string; reason?: string | null } }
@@ -47,7 +56,43 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
   indexName = 'entities',
 }: OpenSearchBackendOptions<Fields>) => {
   const capabilities = capabilitiesFromFields(fields);
-  const geoField = Object.keys(fields).find((name) => fields[name].type === 'geo');
+  const declared = Object.entries(fields);
+  const geoField = declared.find(([, { type }]) => type === 'geo')?.[0];
+
+  const exactField = (name: string) => (fields[name].type === 'text' ? `${name}.exact` : name);
+  const basicFields = declared
+    .filter(([, { type, basic }]) => (type === 'text' ? basic !== false : basic))
+    .map(([name, { weight = 1 }]) => `${name}^${weight}`);
+  const facets = declared.filter(([, { facet }]) => facet);
+
+  const queryFor = (request: SearchRequest): QueryContainer => {
+    if (request.searchType === 'advanced' || request.query.trim() === '') {
+      return { match_all: {} };
+    }
+    if (basicFields.length === 0) {
+      return { match_none: {} };
+    }
+
+    return { multi_match: { query: request.query, fields: basicFields, type: 'best_fields', fuzziness: 'AUTO' } };
+  };
+
+  const sortFor = ({ sort, order }: SearchRequest): Search_RequestBody['sort'] => [
+    sort === 'relevance' ? { _score: { order: 'desc' } } : { [exactField(sort)]: { order, missing: '_last' } },
+    { id: { order: 'asc' } },
+  ];
+
+  const aggregations: Search_RequestBody['aggs'] = Object.fromEntries(
+    facets.map(([name, { facet }]) => [
+      name,
+      {
+        terms: {
+          field: exactField(name),
+          size: typeof facet === 'object' ? facet.size : DEFAULT_FACET_SIZE,
+          order: FACET_ORDER,
+        },
+      },
+    ]),
+  );
 
   const properties: Record<string, object> = {
     id: { type: 'keyword' },
@@ -71,6 +116,57 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
 
   return {
     capabilities,
+
+    search: async (request: SearchRequest): Promise<SearchResult> => {
+      const filter: QueryContainer[] = [
+        ...Object.entries(request.filters.terms).map(([name, values]) => ({ terms: { [exactField(name)]: values } })),
+        request.visibility as QueryContainer,
+      ];
+
+      let response: Search_Response;
+      try {
+        response = await client.search({
+          index: indexName,
+          body: {
+            query: { bool: { must: [queryFor(request)], filter } },
+            aggs: aggregations,
+            sort: sortFor(request),
+            from: request.offset,
+            size: request.limit,
+            track_total_hits: true,
+            _source: false,
+          },
+        });
+      } catch (error) {
+        const { statusCode, message } = error as Error & { statusCode?: number };
+        if (statusCode === 400) {
+          throw new SearchQueryError(message);
+        }
+
+        throw error;
+      }
+
+      const { hits, aggregations: buckets = {} } = response.body;
+
+      return {
+        total: (hits.total as { value: number }).value,
+        hits: hits.hits.map(({ _id, _score }) => ({
+          id: _id as string,
+          ...(typeof _score === 'number' && { searchExtra: { score: _score } }),
+        })),
+        facets: Object.fromEntries(
+          facets.map(([name]) => [
+            name,
+            (buckets[name] as { buckets: TermsBucket[] }).buckets.map(
+              ({ key, key_as_string, doc_count }): FacetBucket => ({
+                name: key_as_string ?? String(key),
+                count: doc_count,
+              }),
+            ),
+          ]),
+        ),
+      };
+    },
 
     /**
      * Create the index with a mapping built from the field declarations

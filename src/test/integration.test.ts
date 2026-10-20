@@ -1,13 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AllVisibleSearchFilter, LicenceAccess } from '../app.js';
+import { AllVisibleSearchFilter, LicenceAccess, OpenSearchBackend } from '../app.js';
 import { Prisma } from '../generated/prisma/client.js';
 import type { AuthorisedEntity, AuthorisedFile } from '../transformers/default.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
+import { describeSearchBackendContract } from './helpers/searchBackendContract.js';
 import {
   buildTestApp,
   cleanupTestData,
   getTestApp,
+  getTestOpenSearch,
   seedTestData,
   setupIntegrationTests,
   teardownIntegrationTests,
@@ -493,7 +495,7 @@ describe('Integration Tests', () => {
       expect(body.entities.length).toBeLessThanOrEqual(1);
     });
 
-    it('should sort entities by id', async () => {
+    it('should sort entities by name', async () => {
       const app = getTestApp();
 
       const response = await app.inject({
@@ -501,7 +503,7 @@ describe('Integration Tests', () => {
         url: '/search',
         payload: {
           query: 'test',
-          sort: 'id',
+          sort: 'name',
         },
       });
       const body = JSON.parse(response.body) as { total: number; entities: AuthorisedEntity[] };
@@ -599,7 +601,7 @@ describe('Integration Tests', () => {
     const hideDrafts = {
       OR: [{ meta: { path: ['draft'], equals: Prisma.AnyNull } }, { meta: { path: ['draft'], not: true } }],
     };
-    const hideDraftsSearch = { bool: { must_not: { term: { 'meta.draft': true } } } };
+    const hideDraftsSearch = { bool: { must_not: { term: { draft: true } } } };
     const stubHandlers = {
       fileHandler: {
         get: async () => ({ type: 'redirect' as const, url: 'https://files.example.com/file' }),
@@ -611,9 +613,6 @@ describe('Integration Tests', () => {
       },
     };
 
-    // Declared separately: the OpenSearch typings omit `field` from terms aggregations
-    const entityTypeFacet = { entityType: { terms: { field: 'entityType', size: 20 } } };
-
     let app: FastifyInstance;
 
     beforeAll(async () => {
@@ -623,7 +622,6 @@ describe('Integration Tests', () => {
         searchVisibilityFilter: () => hideDraftsSearch,
         isAuthenticated: ({ request }) => request.headers['x-user'] !== undefined,
         promptLoginForHidden: true,
-        queryBuilderOptions: { aggregations: entityTypeFacet },
       });
     });
 
@@ -766,7 +764,7 @@ describe('Integration Tests', () => {
         const response = await app.inject({
           method: 'POST',
           url: '/search',
-          payload: { query: '', sort: 'id', limit: 2, offset: 2 },
+          payload: { query: '', sort: 'name', limit: 2, offset: 2 },
         });
         const body = JSON.parse(response.body) as { total: number; entities: AuthorisedEntity[] };
 
@@ -1059,5 +1057,13 @@ describe('Integration Tests', () => {
         expect(missing.statusCode).toBe(404);
       });
     });
+  });
+
+  describeSearchBackendContract('OpenSearchBackend', {
+    create: (fields) => OpenSearchBackend({ client: getTestOpenSearch(), fields, indexName: 'search-contract-test' }),
+    prepare: async (backend) => {
+      await getTestOpenSearch().indices.delete({ index: 'search-contract-test', ignore_unavailable: true });
+      await backend.createIndex();
+    },
   });
 });

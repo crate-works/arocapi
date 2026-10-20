@@ -1,66 +1,86 @@
 ---
 title: Search
-description: The query builder that turns POST /search requests into OpenSearch queries, aggregations and sorts.
+description: The search backend behind POST /search, its field declarations and the OpenSearchBackend options.
 sidebar:
   order: 5
 ---
 
 import { Code } from '@astrojs/starlight/components';
-import searchQueryBuilder from '@examples/configuration/search-query-builder.ts?raw';
-import searchAggregations from '@examples/configuration/search-aggregations.ts?raw';
+import searchFields from '@examples/configuration/search-fields.ts?raw';
 
-`POST /search` builds its OpenSearch request with a query builder. The default, `OpensearchQueryBuilder`, works with
-the defaults below; subclass it to fit your index. [Search](/strategies/search/) walks through the default builder
-and a worked subclass.
+`POST /search` and the `search` part of `GET /capabilities` go through a search backend. arocapi ships
+`OpenSearchBackend`, or you can [write your own](/reference/search-backend/).
 
-| Option                | Required | Type                            | Default                  | Purpose                                         |
-| --------------------- | -------- | ------------------------------- | ------------------------ | ----------------------------------------------- |
-| `queryBuilderClass`   | no       | `typeof OpensearchQueryBuilder` | `OpensearchQueryBuilder` | Class that builds queries, facets and sorts.    |
-| `queryBuilderOptions` | no       | `QueryBuilderOptions`           | none                     | Passed to the query builder's constructor.      |
+| Option   | Required | Type            | Default | Purpose                                                |
+| -------- | -------- | --------------- | ------- | ------------------------------------------------------ |
+| `search` | yes      | `SearchBackend` | none    | Answers searches and holds one search document per entity. |
 
-arocapi creates one instance at registration: `new queryBuilderClass(queryBuilderOptions)`.
+Registration throws `search is required` without it.
 
-## `queryBuilderClass`
+<Code code={searchFields} lang="ts" />
 
-A subclass of `OpensearchQueryBuilder`. Override any of its methods:
+## `fields`
 
-| Method                                                  | Default behaviour                                                                                   |
-| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `buildQuery(searchType, query, filters?, boundingBox?)` | `basic`: fuzzy `multi_match` on `name^2` and `description`; an empty query matches everything. `advanced`: `query_string` with `AND` as the default operator. Each filter adds a `terms` clause on the field as named. `boundingBox` adds a `geo_bounding_box` on `location`. |
-| `buildAggregations(geohashPrecision?, boundingBox?)`    | The configured aggregations, plus a `geohash_grid` on `location` when both arguments are given.       |
-| `buildSort(sort, order)`                                | `relevance`: score order. `name`: `name.keyword`. Anything else: the field as named.                |
-| `searchCapabilities()`                                  | Declares each `terms` aggregation as a `string` filter and a facet in `GET /capabilities`.          |
+The reference backends take a `fields` option: one declaration per search field, keyed by field name. The declarations
+decide what the index holds, what `GET /capabilities` publishes, which requests are valid and the type of the search
+documents you index.
 
-The [search visibility filter](/configuration/visibility/#searchvisibilityfilter) is added outside the builder, so an
-override can't skip it.
+| Key      | Type                       | Default                     | Purpose                                                    |
+| -------- | -------------------------- | --------------------------- | ---------------------------------------------------------- |
+| `type`   | `text`, `keyword`, `date`, `number`, `boolean`, `geo` | none, required | How values are stored and matched.        |
+| `label`  | string                     | none                        | Published wherever the field is, for clients to show.      |
+| `weight` | integer, 1 to 4            | `1`                         | `text` only: how much a basic-search match in it counts.   |
+| `basic`  | boolean                    | `true` for `text`, otherwise `false` | Searched by a basic query. `text` and `keyword` only. |
+| `filter` | boolean                    | `false`                     | Usable as a key in the request's `filters`.                |
+| `facet`  | `true` or `{ size }`       | `false`                     | Counted in the response's `facets`; implies `filter`. `size` defaults to 20. Not on `number`. |
+| `sort`   | boolean                    | `false`                     | Usable as the request's `sort`. Takes a single value.       |
 
-<Code code={searchQueryBuilder} lang="ts" />
+A field with no role is stored for the [search visibility filter](/configuration/visibility/#searchvisibilityfilter)
+only and is never published or searchable. `geo` fields take no role, and at most one is allowed.
 
-## `queryBuilderOptions`
+Filter, facet and sort keys are always the field name. A `text` field used as a filter, facet or sort is compared by
+its exact value; its words are only for basic search.
 
-The default builder reads one field:
+Field names match `^[A-Za-z_][A-Za-z0-9_]*$`, and `id` is reserved. `relevance` is always a sort, so it can't be
+declared as one. The factory throws, naming the field, on a declaration it can't hold.
 
-| Field          | Type                         | Default                                                                          |
-| -------------- | ---------------------------- | -------------------------------------------------------------------------------- |
-| `aggregations` | OpenSearch `aggs` object     | A `terms` aggregation of size 20 on `<field>.keyword` for `inLanguage`, `mediaType`, `communicationMode` and `entityType`. |
+### Search documents
 
-`aggregations` is sent as the request's `aggs` and replaces the defaults rather than merging with them. Each bucket
-aggregation becomes a facet in the response. The defaults assume dynamically mapped text fields with a `.keyword`
-subfield; if your index maps these fields as `keyword`, set your own. The OpenSearch client's typings leave `field` out
-of `terms` aggregations, so declare the aggregations before assigning them:
+You supply one search document per entity: its `id` and values keyed by declared fields, including the full text you
+want searched. arocapi never builds one from the `Entity` row. Add the entity to the database first, then index its
+document.
 
-<Code code={searchAggregations} lang="ts" />
+| Type      | Values                                                                                     |
+| --------- | ------------------------------------------------------------------------------------------ |
+| `text`, `keyword` | strings                                                                            |
+| `date`    | `YYYY`, `YYYY-MM`, `YYYY-MM-DD` or RFC 3339 strings, stored as their first UTC instant; a date-time with no offset is UTC |
+| `number`  | finite numbers                                                                             |
+| `boolean` | `true` or `false`                                                                          |
+| `geo`     | one `{ lat, lng }`                                                                         |
 
-Search filters use the field name as given, so they need a field that matches exactly, such as a `keyword` field.
+Any field but a sort or `geo` field takes a value or an array of values. A missing field is allowed: the entity
+doesn't match filters on it and sorts last. `SearchDocument<typeof fields>` is the document type, so a wrong key or
+value type fails to compile.
 
-## Index
+- `index(docs)` upserts a batch: indexing the same documents again is safe. It throws, naming the entity and key, on an
+  undeclared key or a bad value, and stores nothing from that batch.
+- `remove(ids)` removes documents, ignoring ids that aren't indexed.
 
-arocapi searches an index named `entities`. With the default builder, its documents need:
+To rebuild an index, loop `index` over your entities.
 
-- `id`, matching the `Entity` row;
-- `name` as text with a `name.keyword` subfield, for name sorting;
-- `description` as text;
-- `location` as a `geo_point`, for bounding boxes and geohash grids;
-- `createdAt` and `updatedAt`, for those sorts.
+## `OpenSearchBackend`
 
-See [the index mapping it assumes](/strategies/search/#the-index-mapping-it-assumes) for an example mapping.
+| Option      | Required | Type                                   | Default    | Purpose                          |
+| ----------- | -------- | -------------------------------------- | ---------- | -------------------------------- |
+| `client`    | yes      | `Client` from `@opensearch-project/opensearch` | none | You own the client and its connections. |
+| `fields`    | yes      | field declarations                     | none       | See [`fields`](#fields).         |
+| `indexName` | no       | string                                 | `entities` | Lets several repositories share a cluster. |
+
+`createIndex()` creates the index with a mapping built from `fields`. It does nothing if the index exists with that
+mapping, and throws, naming the field, if it exists with another, so a changed declaration never mis-indexes silently.
+Delete the index and index your entities again to apply a change. `index` doesn't check that the entities exist.
+
+A basic query is a fuzzy `multi_match` over the basic fields, boosted by weight; an empty query matches every visible
+entity. Totals are exact, and an empty query keeps the same order across pages. A query OpenSearch rejects is a 422.
+
+[Search](/strategies/search/) describes how a search runs end to end.

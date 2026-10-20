@@ -5,17 +5,17 @@ import { mockReset } from 'vitest-mock-extended';
 import type { Options } from './app.js';
 import app, { AllPublicAccess, AllVisibleEntityFilter, AllVisibleSearchFilter } from './app.js';
 
-import { opensearch, prisma } from './test/helpers/fastify.js';
+import { fakeSearchBackend } from './test/helpers/fakeSearchBackend.js';
+import { prisma } from './test/helpers/fastify.js';
 
 describe('Entity Route', () => {
   beforeEach(() => {
     mockReset(prisma);
-    mockReset(opensearch);
   });
 
   const requiredOptions = (): Options => ({
     prisma,
-    opensearch,
+    search: fakeSearchBackend().backend,
     access: AllPublicAccess,
     fileHandler: { get: vi.fn(), head: vi.fn() },
     roCrateHandler: { get: vi.fn(), head: vi.fn() },
@@ -26,7 +26,7 @@ describe('Entity Route', () => {
   describe('App Registration', () => {
     it.each([
       ['prisma', 'Prisma client is required'],
-      ['opensearch', 'OpenSearch client is required'],
+      ['search', 'search is required'],
       ['access', 'access is required'],
       ['fileHandler', 'fileHandler is required'],
       ['roCrateHandler', 'roCrateHandler is required'],

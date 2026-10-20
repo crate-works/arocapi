@@ -1,6 +1,6 @@
 ---
 title: Data sources
-description: The Prisma and OpenSearch clients arocapi reads entities from.
+description: The Prisma client arocapi reads entities from.
 sidebar:
   order: 1
 ---
@@ -8,13 +8,12 @@ sidebar:
 import { Code } from '@astrojs/starlight/components';
 import dataSourcesClients from '@examples/configuration/data-sources-clients.ts?raw';
 
-arocapi reads Records from your database through Prisma and searches them through OpenSearch. You create both clients
-and pass them in.
+arocapi reads Records from your database through Prisma. You create the client and pass it in. Search goes through
+the [search backend](/configuration/search/), which holds its own client.
 
 | Option       | Required | Type                  | Default | Purpose                                     |
 | ------------ | -------- | --------------------- | ------- | ------------------------------------------- |
 | `prisma`     | yes      | `ArocapiPrismaClient` | none    | Database client for entities and files.     |
-| `opensearch` | yes      | `Client`              | none    | OpenSearch client used by `POST /search`.   |
 
 <Code code={dataSourcesClients} lang="ts" />
 
@@ -31,11 +30,4 @@ arocapi models` for anything else.
 Your handlers and visibility filter work with the same models, including the free-form `meta` column described in
 [Entity meta](/reference/entity-meta/).
 
-## `opensearch`
-
-A `Client` from `@opensearch-project/opensearch`. Only `POST /search` uses it, against an index named `entities`.
-Registration throws `OpenSearch client is required` without it.
-
-Search hits are reloaded from the database, so every hit also needs a matching `Entity` row. Query, facets and sorting
-are configured under [Search](/configuration/search/), and the [search strategy](/strategies/search/) describes the
-index the default query builder expects.
+Search hits are reloaded from the database, so every hit needs a matching `Entity` row.
