@@ -31,13 +31,14 @@ filters keyed by field name and split into exact terms and ranges, with dates as
 the sort and the result of your search visibility filter. The [Search backend](/reference/search-backend/) reference
 lists every field.
 
-With `OpenSearchBackend`, the [field declarations](/configuration/search/#fields) decide everything a client can do:
+With either reference backend, the [field declarations](/configuration/search/#fields) decide everything a client can
+do:
 
-- **Basic search** matches the `basic` fields, weighted by `weight`, with small typos still matching. An empty query
-  matches every visible entity.
+- **Basic search** matches the `basic` fields, weighted by `weight`. An empty query matches every visible entity.
 - **Filters** match exact values, or ranges on `date` and `number` fields: any value within a field, every field. A
   `text` field is filtered on its exact value, not its words.
-- **Highlights** of the matched words in basic and advanced fields arrive in each hit's `searchExtra`.
+- **Highlights** of the matched words in basic and advanced fields arrive in each hit's `searchExtra` on
+  `OpenSearchBackend`.
 - **Facets** are counted for every declared facet, named by the value and ordered by count, then name; a `date` facet
   has one bucket per UTC year, named `YYYY` and ordered by year. Every declared facet is in every response, empty when
   nothing matches.
@@ -49,12 +50,45 @@ With `OpenSearchBackend`, the [field declarations](/configuration/search/#fields
 
 `GET /capabilities` publishes the same filters, facets and sorts, so clients learn what to send.
 
+## Choosing a backend
+
+Both backends take the same field declarations, search documents and search visibility filter, so switching is a
+change to the factory call. They differ in how they rank and how much they cost to run:
+
+|                  | `OpenSearchBackend`                                         | `PostgresBackend`                                    |
+| ---------------- | ----------------------------------------------------------- | ---------------------------------------------------- |
+| Ranking          | BM25: rare words count for more                             | `ts_rank` with field weights, but no rarity (IDF)    |
+| Matching         | Per-field analysers, small typos still match                | Whole words, no typos                                |
+| Runs on          | A separate OpenSearch cluster                               | The database you already have                        |
+| Scale            | Large collections and heavy query load                      | Small collections, fine on a Raspberry Pi            |
+| Advanced queries, `date` facets, geo | Yes                                     | Not yet                                              |
+
+Filters, value facets, sorts, exact totals, the search visibility filter, the query grammar and errors are the same on
+both. Only which entities a basic query finds, and their relevance order, differ.
+
+### Lightweight: the Postgres backend
+
+On small hardware, or wherever running OpenSearch isn't worth it, search with Postgres alone:
+
+1. Drop the `opensearch` service from your Compose file, and `@opensearch-project/opensearch` from your packages.
+2. Swap `OpenSearchBackend({ client, fields })` for [`PostgresBackend({ prisma, fields })`](/configuration/search/#postgresbackend),
+   with the same `fields`, and drop the `createIndex()` call.
+3. Index your entities again with the same `index` calls. The `EntitySearch` table is already in your database from
+   `prisma migrate`.
+
+### Write your own backend
+
+To search another engine, or search differently, implement the [`SearchBackend` contract](/reference/search-backend/):
+`capabilities` from `capabilitiesFromFields(fields)`, and `search`, `index` and `remove`. arocapi validates every
+request against `capabilities` before your `search` sees it, so the backend only searches: it applies the filters, the
+search visibility filter and the sort, and returns ordered ids, an exact total and every declared facet.
+
 ## Search and visibility
 
 Your `searchVisibilityFilter` returns a condition over `id` and your declared fields, in
 [one language for every backend](/configuration/visibility/#searchvisibilityfilter). arocapi passes it to the backend
-as the request's `visibility`, and `OpenSearchBackend` applies it as a filter beside the query, so hidden entities are excluded from the
-hits, from `total` and from every facet count.
+as the request's `visibility`, and the backend applies it as a filter beside the query, so hidden entities are excluded
+from the hits, from `total` and from every facet count.
 
 arocapi then loads the hits from the database through your `entityVisibilityFilter` as well. A hit that the database
 filter hides, or that isn't in the database, is dropped from the page with a warning in the log. `total` and the facets
@@ -70,7 +104,7 @@ for this. For example, if drafts are hidden through a `draft` flag in the entity
 
 ## Customising search
 
-`OpenSearchBackend` is customised through its options only. To search differently, write your own backend against the
-[`SearchBackend` contract](/reference/search-backend/).
+The reference backends are customised through their options only. To search differently,
+[write your own backend](#write-your-own-backend).
 
 The request body and response are under [`POST /search`](/reference/routes/#post-search).

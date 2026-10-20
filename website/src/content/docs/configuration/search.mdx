@@ -1,15 +1,17 @@
 ---
 title: Search
-description: The search backend behind POST /search, its field declarations and the OpenSearchBackend options.
+description: The search backend behind POST /search, its field declarations and the OpenSearchBackend and PostgresBackend options.
 sidebar:
   order: 5
 ---
 
 import { Code } from '@astrojs/starlight/components';
 import searchFields from '@examples/configuration/search-fields.ts?raw';
+import searchPostgres from '@examples/configuration/search-postgres.ts?raw';
 
 `POST /search` and the `search` part of `GET /capabilities` go through a search backend. arocapi ships
-`OpenSearchBackend`, or you can [write your own](/reference/search-backend/).
+[`OpenSearchBackend`](#opensearchbackend) and [`PostgresBackend`](#postgresbackend), or you can
+[write your own](/reference/search-backend/). [Search](/strategies/search/#choosing-a-backend) compares them.
 
 | Option   | Required | Type            | Default | Purpose                                                |
 | -------- | -------- | --------------- | ------- | ------------------------------------------------------ |
@@ -87,6 +89,31 @@ and the highlighted matches in its basic and advanced fields. A query OpenSearch
 
 In an advanced query, a `text` value matches all its words (`match` with `operator: and`) or the exact phrase
 (`match_phrase`), any other type matches exactly, and `NOT` is `must_not`.
+
+## `PostgresBackend`
+
+| Option   | Required | Type               | Default | Purpose                                                        |
+| -------- | -------- | ------------------ | ------- | -------------------------------------------------------------- |
+| `prisma` | yes      | your Prisma client | none    | Usually the client you pass as `prisma`; it holds the `EntitySearch` table. |
+| `fields` | yes      | field declarations | none    | See [`fields`](#fields).                                       |
+
+`PostgresBackend` keeps one row per entity in the `EntitySearch` table, which ships in arocapi's `prisma/models` and
+is created by `prisma migrate` with the rest of the schema. It needs no extensions and no `createIndex()`: a changed
+declaration applies to documents as you index them again.
+
+`index(docs, { tx })` takes an optional Prisma transaction client, so a search document commits or rolls back with its
+entity. `index` throws, naming them, if any entity doesn't exist yet, and stores nothing from that batch. Deleting an
+entity deletes its search document.
+
+<Code code={searchPostgres} lang="ts" />
+
+A basic query is a Postgres web search (`websearch_to_tsquery`) over the basic fields, with words matched whole rather
+than with typos; quotes, `or` and `-` work as they do on search engines. An empty query matches every visible entity.
+Relevance is `ts_rank`, weighted by `weight` and tie-broken by id. Filters, facets, sorts, totals and the search
+visibility filter behave exactly as on `OpenSearchBackend`, and strings sort in code point order, as OpenSearch sorts
+them. `searchExtra` is empty.
+
+`PostgresBackend` doesn't support advanced queries, `date` facets or geo yet.
 
 ## Dates
 

@@ -1,4 +1,5 @@
 import { join, type Sql, sqltag as sql } from '@prisma/client/runtime/client';
+import type { SearchRequest, SearchResult } from './backend.js';
 import {
   capabilitiesFromFields,
   type FieldDeclarations,
@@ -6,6 +7,9 @@ import {
   type SearchDocument,
   storeDocuments,
 } from './fields.js';
+import { typed, valuesOf } from './postgresValues.js';
+import { visibilityCondition } from './postgresVisibility.js';
+import { checkSearchVisibility } from './visibility.js';
 
 /**
  * The Prisma client PostgresBackend needs: any Prisma 7 client on a schema that includes the arocapi models,
@@ -22,6 +26,7 @@ export type PostgresBackendOptions<Fields extends FieldDeclarations> = {
 };
 
 const TEXT_SEARCH_CONFIG = sql`'simple'::regconfig`;
+const DEFAULT_FACET_SIZE = 20;
 const WEIGHT_LABELS = ['D', 'C', 'B', 'A'];
 const GEOHASH_ALPHABET = '0123456789bcdefghjkmnpqrstuvwxyz';
 
@@ -55,7 +60,12 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
   prisma,
   fields,
 }: PostgresBackendOptions<Fields>) => {
-  const capabilities = capabilitiesFromFields(fields);
+  // Advanced search isn't implemented yet, so it isn't published and arocapi never sends it
+  const {
+    searchTypes: { advanced: _, ...searchTypes },
+    ...published
+  } = capabilitiesFromFields(fields);
+  const capabilities = { ...published, searchTypes };
   const declared = Object.entries(fields);
   const geoField = declared.find(([, { type }]) => type === 'geo')?.[0];
   const textFields = declared.filter(([, { type }]) => type === 'text').map(([name]) => name);
@@ -77,8 +87,74 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
     FROM unnest(${textFields}::text[]) AS field, unnest(to_tsvector(${TEXT_SEARCH_CONFIG}, docs."values" -> field))
   )`;
 
+  const facets = declared
+    .filter(([, { facet }]) => facet)
+    .map(
+      ([name, { facet }]) => sql`jsonb_build_object(${name}::text, (
+        SELECT coalesce(jsonb_agg(
+          jsonb_build_object('name', bucket.name, 'count', bucket.count) ORDER BY bucket.count DESC, bucket.name COLLATE "C"
+        ), '[]')
+        FROM (
+          SELECT field.value AS name, count(DISTINCT search.id)::int AS count
+          FROM matched AS search, ${valuesOf(name)}
+          GROUP BY field.value
+          ORDER BY count DESC, field.value COLLATE "C"
+          LIMIT ${typeof facet === 'object' ? facet.size : DEFAULT_FACET_SIZE}::int
+        ) AS bucket
+      ))`,
+    );
+
+  const orderFor = ({ sort, order }: SearchRequest) =>
+    sort === 'relevance'
+      ? sql`search.rank DESC`
+      : sql`${typed(fields[sort].type, sql`search."values" ->> ${sort}::text`)} ${order === 'asc' ? sql`ASC` : sql`DESC`} NULLS LAST`;
+
   return {
     capabilities,
+
+    search: async (request: SearchRequest): Promise<SearchResult> => {
+      const { query } = request as Extract<SearchRequest, { searchType: 'basic' }>;
+      const tsquery = sql`websearch_to_tsquery(${TEXT_SEARCH_CONFIG}, ${query}::text)`;
+      const [matches, rank] =
+        query.trim() === ''
+          ? [sql`TRUE`, sql`0`]
+          : [sql`search.basic @@ ${tsquery}`, sql`ts_rank(search.basic, ${tsquery})`];
+      const conditions = [
+        matches,
+        ...Object.entries(request.filters.terms).map(
+          ([name, values]) => sql`EXISTS (SELECT FROM ${valuesOf(name)} WHERE field.value = ANY(${values}::text[]))`,
+        ),
+        ...Object.entries(request.filters.ranges).map(([name, ranges]) =>
+          visibilityCondition(
+            { type: 'or', clauses: ranges.map((bounds) => ({ type: 'range', field: name, bounds })) },
+            fields,
+          ),
+        ),
+        visibilityCondition(checkSearchVisibility(fields, request.visibility), fields),
+      ];
+
+      const [result] = await prisma.$queryRaw<{ total: number; hits: string[]; facets: SearchResult['facets'] }[]>(sql`
+        WITH matched AS (
+          SELECT search.id, search."values", ${rank} AS rank
+          FROM entity_search AS search
+          WHERE ${join(conditions, ' AND ')}
+        )
+        SELECT
+          (SELECT count(*)::int FROM matched) AS total,
+          (
+            SELECT coalesce(jsonb_agg(page.id ORDER BY page.position), '[]')
+            FROM (
+              SELECT search.id, row_number() OVER (ORDER BY ${orderFor(request)}, search.id COLLATE "C") AS position
+              FROM matched AS search
+              ORDER BY position
+              LIMIT ${request.limit}::int OFFSET ${request.offset}::int
+            ) AS page
+          ) AS hits,
+          ${join([sql`'{}'::jsonb`, ...facets], ' || ')} AS facets
+      `);
+
+      return { total: result.total, hits: result.hits.map((id) => ({ id })), facets: result.facets };
+    },
 
     /**
      * Upsert search documents, replacing any already indexed with the same id

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AllVisibleSearchFilter, LicenceAccess, OpenSearchBackend } from '../app.js';
+import { AllVisibleSearchFilter, LicenceAccess, OpenSearchBackend, PostgresBackend } from '../app.js';
 import { Prisma } from '../generated/prisma/client.js';
 import type { AuthorisedEntity, AuthorisedFile } from '../transformers/default.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
@@ -10,14 +10,15 @@ import {
   cleanupTestData,
   getTestApp,
   getTestOpenSearch,
+  getTestPrisma,
   seedTestData,
   setupIntegrationTests,
   teardownIntegrationTests,
 } from './integration.setup.js';
 
-describe('Integration Tests', () => {
+describe.each(['OpenSearchBackend', 'PostgresBackend'] as const)('Integration Tests with %s', (backend) => {
   beforeAll(async () => {
-    await setupIntegrationTests();
+    await setupIntegrationTests(backend);
   });
 
   afterAll(async () => {
@@ -1059,11 +1060,21 @@ describe('Integration Tests', () => {
     });
   });
 
-  describeSearchBackendContract('OpenSearchBackend', {
-    create: (fields) => OpenSearchBackend({ client: getTestOpenSearch(), fields, indexName: 'search-contract-test' }),
-    prepare: async (backend) => {
-      await getTestOpenSearch().indices.delete({ index: 'search-contract-test', ignore_unavailable: true });
-      await backend.createIndex();
-    },
-  });
+  if (backend === 'OpenSearchBackend') {
+    describeSearchBackendContract(backend, {
+      create: (fields) => OpenSearchBackend({ client: getTestOpenSearch(), fields, indexName: 'search-contract-test' }),
+      prepare: async (search) => {
+        await getTestOpenSearch().indices.delete({ index: 'search-contract-test', ignore_unavailable: true });
+        await search.createIndex();
+      },
+    });
+  } else {
+    describeSearchBackendContract(backend, {
+      create: (fields) => PostgresBackend({ prisma: getTestPrisma(), fields }),
+      prepare: async () => {
+        await getTestPrisma().entitySearch.deleteMany({});
+      },
+      skip: ['advanced', 'ranges'],
+    });
+  }
 });

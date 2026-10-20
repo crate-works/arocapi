@@ -1,6 +1,23 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`Integration Tests > GET /entity/:id > should return entity from database 1`] = `
+exports[`Integration Tests with OpenSearchBackend > GET /entity/:id > should return entity from database 1`] = `
+{
+  "access": {
+    "content": true,
+    "metadata": true,
+  },
+  "contentLicenseId": "https://creativecommons.org/licenses/by/4.0/",
+  "description": "First test entity",
+  "entityType": "http://pcdm.org/models#Collection",
+  "id": "http://example.com/entity/1",
+  "memberOf": null,
+  "metadataLicenseId": "https://creativecommons.org/licenses/by/4.0/",
+  "name": "Test Collection",
+  "rootCollection": null,
+}
+`;
+
+exports[`Integration Tests with PostgresBackend > GET /entity/:id > should return entity from database 1`] = `
 {
   "access": {
     "content": true,

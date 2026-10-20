@@ -11,6 +11,8 @@ export type SearchBackendContractHarness<Backend extends SearchBackend = SearchB
   create: (fields: FieldDeclarations) => Backend;
   /** Make the backend ready to index, starting from nothing stored */
   prepare: (backend: Backend) => Promise<void>;
+  /** Contract blocks the backend doesn't implement yet: `advanced` queries, and `ranges` for dates, numbers and geo */
+  skip?: ('advanced' | 'ranges')[];
 };
 
 const fields = {
@@ -54,6 +56,8 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
   name: string,
   harness: SearchBackendContractHarness<Backend>,
 ) => {
+  const unless = (block: 'advanced' | 'ranges') => ({ skip: harness.skip?.includes(block) });
+
   describe(`${name} search contract`, () => {
     let app: FastifyInstance;
 
@@ -206,7 +210,7 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
       });
     });
 
-    describe('with dates, numbers and geo', () => {
+    describe('with dates, numbers and geo', unless('ranges'), () => {
       const geoFields = {
         name: { type: 'text', sort: true },
         datePublished: { type: 'date', facet: true },
@@ -342,7 +346,7 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
       expect(response.json<StandardErrorResponse>().error.code).toBe('VALIDATION_ERROR');
     });
 
-    describe('advanced queries', () => {
+    describe('advanced queries', unless('advanced'), () => {
       const advancedFields = {
         name: { type: 'text', advanced: true, label: 'Name' },
         description: { type: 'text', advanced: true },
@@ -374,6 +378,7 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
         { id: id(5), name: 'echidna', inLanguage: 'english', open: true },
       ];
 
+      // biome-ignore lint/suspicious/noDuplicateTestHooks: Biome doesn't see describe with options as its own block
       beforeEach(async () => {
         await load(advancedFields, advancedDocs);
       });

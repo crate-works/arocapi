@@ -3,14 +3,24 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 import type { Options } from '../app.js';
-import app, { AllPublicAccess, AllVisibleEntityFilter, AllVisibleSearchFilter, OpenSearchBackend } from '../app.js';
+import app, {
+  AllPublicAccess,
+  AllVisibleEntityFilter,
+  AllVisibleSearchFilter,
+  OpenSearchBackend,
+  PostgresBackend,
+} from '../app.js';
 import { PrismaClient } from '../generated/prisma/client.js';
 import type { FieldDeclarations } from '../search/fields.js';
+
+export type TestBackend = 'OpenSearchBackend' | 'PostgresBackend';
 
 let fastify: FastifyInstance;
 let prisma: PrismaClient;
 let opensearch: Client;
-let search: ReturnType<typeof OpenSearchBackend<typeof testFields>>;
+let search:
+  | ReturnType<typeof OpenSearchBackend<typeof testFields>>
+  | ReturnType<typeof PostgresBackend<typeof testFields>>;
 
 const testFields = {
   name: { type: 'text', weight: 2, sort: true },
@@ -21,8 +31,9 @@ const testFields = {
 
 export const getTestApp = () => fastify;
 export const getTestOpenSearch = () => opensearch;
+export const getTestPrisma = () => prisma;
 
-export async function setupIntegrationTests() {
+export async function setupIntegrationTests(backend: TestBackend) {
   process.env.DATABASE_URL = 'postgresql://postgres:password@localhost:5433/catalog_test';
   process.env.OPENSEARCH_URL = 'http://localhost:9201';
   process.env.NODE_ENV = 'test';
@@ -33,7 +44,10 @@ export async function setupIntegrationTests() {
   opensearch = new Client({
     node: process.env.OPENSEARCH_URL,
   });
-  search = OpenSearchBackend({ client: opensearch, fields: testFields, indexName: 'integration-test' });
+  search =
+    backend === 'OpenSearchBackend'
+      ? OpenSearchBackend({ client: opensearch, fields: testFields, indexName: 'integration-test' })
+      : PostgresBackend({ prisma, fields: testFields });
 
   fastify = await buildTestApp();
 }
@@ -204,7 +218,9 @@ export async function seedTestData() {
     data: testFiles,
   });
 
-  await search.createIndex();
+  if ('createIndex' in search) {
+    await search.createIndex();
+  }
   await search.index(
     testEntities.map(({ id, name, description, entityType, meta }) => ({
       id,
