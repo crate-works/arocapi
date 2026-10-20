@@ -211,4 +211,3 @@ searchVisibilityFilter: async ({ request }) => {
   should read search types, geo and sorts from `/capabilities`.
 - Rebuilding an index without downtime (e.g. an OpenSearch alias swap) isn't
   supported, and can be added later without a breaking change.
-- The docs' Getting started moves to Postgres.
