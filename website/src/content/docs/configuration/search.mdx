@@ -113,7 +113,10 @@ Relevance is `ts_rank`, weighted by `weight` and tie-broken by id. Filters, face
 visibility filter behave exactly as on `OpenSearchBackend`, and strings sort in code point order, as OpenSearch sorts
 them. `searchExtra` is empty.
 
-`PostgresBackend` doesn't support advanced queries, `date` facets or geo yet.
+Geo filters on Postgres's built-in `point` type with a GiST index, and counts the geohash grid by prefixes of each
+entity's stored geohash, so it needs no PostGIS.
+
+`PostgresBackend` doesn't support advanced queries yet.
 
 ## Dates
 

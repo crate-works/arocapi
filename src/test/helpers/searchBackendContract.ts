@@ -320,6 +320,17 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
         expect(response.json().geohashGrid).toEqual({ r3: 1, qv: 1, ru: 1 });
       });
 
+      it('gives an empty geohash grid when nothing in the box matches', async () => {
+        const boundingBox = { topRight: { lat: 60, lng: 10 }, bottomLeft: { lat: 40, lng: -10 } };
+        const response = await app.inject({
+          method: 'POST',
+          url: '/search',
+          payload: { query: '', boundingBox, geohashPrecision: 3 },
+        });
+
+        expect(response.json()).toMatchObject({ total: 0, geohashGrid: {} });
+      });
+
       it.each([
         ['a range on a string filter', { filters: { inLanguage: { gte: 'a' } } }],
         ['a range on a boolean filter', { filters: { open: [{ gte: 'false' }] } }],

@@ -7,6 +7,8 @@ import {
   type SearchDocument,
   storeDocuments,
 } from './fields.js';
+import { valueBuckets, yearBuckets } from './postgresFacets.js';
+import { boundingBoxCondition, geohashGrid } from './postgresGeo.js';
 import { typed, valuesOf } from './postgresValues.js';
 import { visibilityCondition } from './postgresVisibility.js';
 import { checkSearchVisibility } from './visibility.js';
@@ -89,20 +91,14 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
 
   const facets = declared
     .filter(([, { facet }]) => facet)
-    .map(
-      ([name, { facet }]) => sql`jsonb_build_object(${name}::text, (
-        SELECT coalesce(jsonb_agg(
-          jsonb_build_object('name', bucket.name, 'count', bucket.count) ORDER BY bucket.count DESC, bucket.name COLLATE "C"
-        ), '[]')
-        FROM (
-          SELECT field.value AS name, count(DISTINCT search.id)::int AS count
-          FROM matched AS search, ${valuesOf(name)}
-          GROUP BY field.value
-          ORDER BY count DESC, field.value COLLATE "C"
-          LIMIT ${typeof facet === 'object' ? facet.size : DEFAULT_FACET_SIZE}::int
-        ) AS bucket
-      ))`,
-    );
+    .map(([name, { type, facet }]) => {
+      const buckets =
+        type === 'date'
+          ? yearBuckets(name)
+          : valueBuckets(name, typeof facet === 'object' ? facet.size : DEFAULT_FACET_SIZE);
+
+      return sql`jsonb_build_object(${name}::text, ${buckets})`;
+    });
 
   const orderFor = ({ sort, order }: SearchRequest) =>
     sort === 'relevance'
@@ -130,12 +126,16 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
             fields,
           ),
         ),
+        ...(request.boundingBox ? [boundingBoxCondition(request.boundingBox)] : []),
         visibilityCondition(checkSearchVisibility(fields, request.visibility), fields),
       ];
 
-      const [result] = await prisma.$queryRaw<{ total: number; hits: string[]; facets: SearchResult['facets'] }[]>(sql`
+      const { geohashPrecision } = request;
+      const [result] = await prisma.$queryRaw<
+        (Pick<SearchResult, 'total' | 'facets' | 'geohashGrid'> & { hits: string[] })[]
+      >(sql`
         WITH matched AS (
-          SELECT search.id, search."values", ${rank} AS rank
+          SELECT search.id, search."values", search.geohash, ${rank} AS rank
           FROM entity_search AS search
           WHERE ${join(conditions, ' AND ')}
         )
@@ -150,10 +150,16 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
               LIMIT ${request.limit}::int OFFSET ${request.offset}::int
             ) AS page
           ) AS hits,
-          ${join([sql`'{}'::jsonb`, ...facets], ' || ')} AS facets
+          ${join([sql`'{}'::jsonb`, ...facets], ' || ')} AS facets,
+          ${geohashPrecision === undefined ? sql`NULL` : geohashGrid(geohashPrecision)} AS "geohashGrid"
       `);
 
-      return { total: result.total, hits: result.hits.map((id) => ({ id })), facets: result.facets };
+      return {
+        total: result.total,
+        hits: result.hits.map((id) => ({ id })),
+        facets: result.facets,
+        ...(result.geohashGrid && { geohashGrid: result.geohashGrid }),
+      };
     },
 
     /**
