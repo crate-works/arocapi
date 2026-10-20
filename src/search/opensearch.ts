@@ -29,6 +29,8 @@ export type OpenSearchBackendOptions<Fields extends FieldDeclarations> = {
   fields: Fields;
   /** Default `entities` */
   indexName?: string;
+  /** Passed to each bulk `index` and `remove`. Default `false` */
+  refresh?: boolean | 'wait_for';
 };
 
 // A keyword term is limited to 32766 bytes, up to 4 per character
@@ -72,6 +74,7 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
   client,
   fields,
   indexName = 'entities',
+  refresh = false,
 }: OpenSearchBackendOptions<Fields>) => {
   const capabilities = capabilitiesFromFields(fields);
   const { basic, facets, geoField } = resolveFields(fields);
@@ -150,7 +153,7 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
       return;
     }
 
-    const { body } = await client.bulk({ body: operations, refresh: true });
+    const { body } = await client.bulk({ body: operations, refresh });
     const failure = (body.items as BulkItem[])
       .map((item) => Object.values(item)[0])
       .find(({ error, status }) => error && !tolerated.includes(status));

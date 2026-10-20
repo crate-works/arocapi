@@ -1062,7 +1062,13 @@ describe.each(['OpenSearchBackend', 'PostgresBackend'] as const)('Integration Te
 
   if (backend === 'OpenSearchBackend') {
     describeSearchBackendContract(backend, {
-      create: (fields) => OpenSearchBackend({ client: getTestOpenSearch(), fields, indexName: 'search-contract-test' }),
+      create: (fields) =>
+        OpenSearchBackend({
+          client: getTestOpenSearch(),
+          fields,
+          indexName: 'search-contract-test',
+          refresh: true,
+        }),
       prepare: async (search) => {
         await getTestOpenSearch().indices.delete({ index: 'search-contract-test', ignore_unavailable: true });
         await search.createIndex();

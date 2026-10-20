@@ -85,17 +85,6 @@ const createIndex = async () => {
   await search.createIndex();
 };
 
-const indexEntity = (entity: EntityResponse['entities'][number], dummyData: ReturnType<typeof generateDummyData>) =>
-  search.index([
-    {
-      id: entity.id,
-      name: entity.name,
-      description: entity.description,
-      entityType: entity.entityType,
-      ...dummyData,
-    },
-  ]);
-
 const loadEntities = async (): Promise<void> => {
   try {
     console.log('Starting to load entities...');
@@ -114,8 +103,6 @@ const loadEntities = async (): Promise<void> => {
       );
 
       for (const entity of data.entities) {
-        const dummyData = generateDummyData();
-
         await prisma.entity.create({
           data: {
             id: entity.id,
@@ -128,9 +115,17 @@ const loadEntities = async (): Promise<void> => {
             contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
           },
         });
-
-        await indexEntity(entity, dummyData);
       }
+
+      await search.index(
+        data.entities.map((entity) => ({
+          id: entity.id,
+          name: entity.name,
+          description: entity.description,
+          entityType: entity.entityType,
+          ...generateDummyData(),
+        })),
+      );
 
       processedCount += data.entities.length;
       console.log(`Processed ${processedCount}/${TOTAL_RECORDS} entities`);

@@ -78,10 +78,15 @@ To rebuild an index, loop `index` over your entities.
 | `client`    | yes      | `Client` from `@opensearch-project/opensearch` | none | You own the client and its connections. |
 | `fields`    | yes      | field declarations                     | none       | See [`fields`](#fields).         |
 | `indexName` | no       | string                                 | `entities` | Lets several repositories share a cluster. |
+| `refresh`   | no       | `boolean` or `'wait_for'`              | `false`    | OpenSearch's `refresh` on each `index` and `remove`. |
 
 `createIndex()` creates the index with a mapping built from `fields`. It does nothing if the index exists with that
 mapping, and throws, naming the field, if it exists with another, so a changed declaration never mis-indexes silently.
 Delete the index and index your entities again to apply a change. `index` doesn't check that the entities exist.
+
+By default a write is searchable after OpenSearch's next refresh, about a second later, which keeps bulk indexing fast.
+Pass `refresh: 'wait_for'` if a write must be searchable as soon as it returns, or `true` in tests, at the cost of
+slower writes.
 
 A basic query is a fuzzy `multi_match` over the basic fields, boosted by weight; an empty query, or one with no words
 left once analysed (such as `*`), matches every visible entity. Totals are exact, and an empty query keeps the same

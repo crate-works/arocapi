@@ -22,7 +22,7 @@ afterAll(async () => {
 });
 
 describeSearchBackendWrites('OpenSearchBackend', {
-  create: (fields) => OpenSearchBackend({ client, fields, indexName }),
+  create: (fields) => OpenSearchBackend({ client, fields, indexName, refresh: true }),
   prepare: async (backend) => {
     await dropIndex();
     await backend.createIndex();
@@ -49,27 +49,36 @@ describe('OpenSearchBackend', () => {
 
   describe('createIndex', () => {
     it('leaves an index created from the same declarations alone', async () => {
-      await OpenSearchBackend({ client, fields, indexName }).createIndex();
-      await OpenSearchBackend({ client, fields, indexName }).index([{ id: 'http://example.com/1', name: 'One' }]);
+      await OpenSearchBackend({ client, fields, indexName, refresh: true }).createIndex();
+      await OpenSearchBackend({ client, fields, indexName, refresh: true }).index([
+        { id: 'http://example.com/1', name: 'One' },
+      ]);
 
-      await expect(OpenSearchBackend({ client, fields, indexName }).createIndex()).resolves.toBeUndefined();
+      await expect(
+        OpenSearchBackend({ client, fields, indexName, refresh: true }).createIndex(),
+      ).resolves.toBeUndefined();
       const { body } = await client.count({ index: indexName });
       expect(body.count).toBe(1);
     });
 
     it('throws, naming the field, when a declaration changed', async () => {
-      await OpenSearchBackend({ client, fields, indexName }).createIndex();
+      await OpenSearchBackend({ client, fields, indexName, refresh: true }).createIndex();
 
-      const changed = OpenSearchBackend({ client, fields: { ...fields, name: { type: 'keyword' } }, indexName });
+      const changed = OpenSearchBackend({
+        client,
+        fields: { ...fields, name: { type: 'keyword' } },
+        indexName,
+        refresh: true,
+      });
 
       await expect(changed.createIndex()).rejects.toThrow(`Index "${indexName}"`);
       await expect(changed.createIndex()).rejects.toThrow('"name"');
     });
 
     it('throws, naming the field, when the index holds a field no longer declared', async () => {
-      await OpenSearchBackend({ client, fields, indexName }).createIndex();
+      await OpenSearchBackend({ client, fields, indexName, refresh: true }).createIndex();
 
-      const fewer = OpenSearchBackend({ client, fields: { name: { type: 'text' } }, indexName });
+      const fewer = OpenSearchBackend({ client, fields: { name: { type: 'text' } }, indexName, refresh: true });
 
       await expect(fewer.createIndex()).rejects.toThrow('"inLanguage"');
     });
@@ -77,7 +86,9 @@ describe('OpenSearchBackend', () => {
     it('throws, naming the field, on an index created some other way', async () => {
       await client.indices.create({ index: indexName });
 
-      await expect(OpenSearchBackend({ client, fields, indexName }).createIndex()).rejects.toThrow('"id"');
+      await expect(OpenSearchBackend({ client, fields, indexName, refresh: true }).createIndex()).rejects.toThrow(
+        '"id"',
+      );
     });
 
     it('uses the entities index by default', async () => {
@@ -100,16 +111,38 @@ describe('OpenSearchBackend', () => {
       });
 
       await expect(
-        OpenSearchBackend({ client, fields, indexName }).index([{ id: 'http://example.com/1', name: 'One' }]),
+        OpenSearchBackend({ client, fields, indexName, refresh: true }).index([
+          { id: 'http://example.com/1', name: 'One' },
+        ]),
       ).rejects.toThrow('"http://example.com/1"');
+    });
+  });
+
+  describe('refresh', () => {
+    const bulkWith = async (options: { refresh?: boolean | 'wait_for' }) => {
+      const bulk = vi.fn().mockResolvedValue({ body: { items: [] } });
+      const backend = OpenSearchBackend({ client: { bulk } as unknown as Client, fields, ...options });
+
+      await backend.index([{ id: 'http://example.com/1' }]);
+      await backend.remove(['http://example.com/1']);
+
+      return bulk.mock.calls.map(([params]) => params.refresh);
+    };
+
+    it("doesn't refresh after a write by default", async () => {
+      expect(await bulkWith({})).toEqual([false, false]);
+    });
+
+    it.each([true, 'wait_for'] as const)('passes refresh %s to each write', async (refresh) => {
+      expect(await bulkWith({ refresh })).toEqual([refresh, refresh]);
     });
   });
 
   describe('remove', () => {
     it('does nothing before the index exists', async () => {
-      await expect(OpenSearchBackend({ client, fields, indexName }).remove(['http://example.com/1'])).resolves.toBe(
-        undefined,
-      );
+      await expect(
+        OpenSearchBackend({ client, fields, indexName, refresh: true }).remove(['http://example.com/1']),
+      ).resolves.toBe(undefined);
     });
   });
 
@@ -128,7 +161,7 @@ describe('OpenSearchBackend', () => {
       }) as SearchRequest;
 
     it('gives each relevance hit its score and the highlighted matches in searchExtra', async () => {
-      const backend = OpenSearchBackend({ client, fields, indexName });
+      const backend = OpenSearchBackend({ client, fields, indexName, refresh: true });
       await backend.createIndex();
       await backend.index([{ id: 'http://example.com/1', name: 'Red Kangaroo', inLanguage: 'kangaroo' }]);
 
@@ -147,6 +180,7 @@ describe('OpenSearchBackend', () => {
         client,
         fields: { ...fields, name: { type: 'text', sort: true } },
         indexName,
+        refresh: true,
       });
       await backend.createIndex();
       await backend.index([{ id: 'http://example.com/1', name: 'Kangaroo' }]);
@@ -157,7 +191,7 @@ describe('OpenSearchBackend', () => {
     });
 
     it('matches nothing for a basic query when no field is in basic search', async () => {
-      const backend = OpenSearchBackend({ client, fields: { code: { type: 'keyword' } }, indexName });
+      const backend = OpenSearchBackend({ client, fields: { code: { type: 'keyword' } }, indexName, refresh: true });
       await backend.createIndex();
       await backend.index([{ id: 'http://example.com/1', code: 'kangaroo' }]);
 
@@ -175,7 +209,12 @@ describe('OpenSearchBackend', () => {
     });
 
     it('throws a SearchQueryError for an advanced query over the clause limit', async () => {
-      const backend = OpenSearchBackend({ client, fields: { code: { type: 'keyword', advanced: true } }, indexName });
+      const backend = OpenSearchBackend({
+        client,
+        fields: { code: { type: 'keyword', advanced: true } },
+        indexName,
+        refresh: true,
+      });
       await backend.createIndex();
       const clauses = Array.from({ length: 5000 }, (_, n) => ({
         type: 'match' as const,
@@ -191,7 +230,7 @@ describe('OpenSearchBackend', () => {
     });
 
     it('rethrows any other OpenSearch error', async () => {
-      const search = OpenSearchBackend({ client, fields, indexName }).search(request());
+      const search = OpenSearchBackend({ client, fields, indexName, refresh: true }).search(request());
 
       await expect(search).rejects.toThrow();
       await expect(search).rejects.not.toBeInstanceOf(SearchQueryError);

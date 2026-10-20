@@ -46,7 +46,7 @@ export async function setupIntegrationTests(backend: TestBackend) {
   });
   search =
     backend === 'OpenSearchBackend'
-      ? OpenSearchBackend({ client: opensearch, fields: testFields, indexName: 'integration-test' })
+      ? OpenSearchBackend({ client: opensearch, fields: testFields, indexName: 'integration-test', refresh: true })
       : PostgresBackend({ prisma, fields: testFields });
 
   fastify = await buildTestApp();
