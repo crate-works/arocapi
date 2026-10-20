@@ -62,11 +62,11 @@ pnpm add -D prisma@7 dotenv
 
 - `arocapi` is the plugin. It depends on Fastify, but you install `fastify` yourself to create the server it runs in.
 - `@prisma/client` is a peer dependency. arocapi reads entities through the Prisma client that you generate in your
-  project.
+  project. arocapi needs Prisma 7.10 or later 7.x; Prisma 8 isn't supported.
 - `@prisma/adapter-mariadb` is the driver adapter Prisma 7 needs to connect to MySQL or MariaDB. For PostgreSQL, use
   `@prisma/adapter-pg`.
-- `prisma` is the CLI that runs migrations and generates the client. Pin it to the same major version as
-  `@prisma/client`.
+- `prisma` is the CLI that runs migrations and generates the client. Pin it to 7: `prisma@latest` is Prisma 8,
+  which can't read a Prisma 7 config.
 - `@opensearch-project/opensearch` is the search client you pass to arocapi.
 - `dotenv` loads `.env` for the Prisma CLI.
 
