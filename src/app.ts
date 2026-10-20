@@ -20,6 +20,17 @@ import { OpensearchQueryBuilder } from './utils/queryBuilder.js';
 import { setupValidation } from './utils/validation.js';
 
 export type {
+  BackendSearchCapability,
+  FieldDeclaration,
+  FieldDeclarations,
+  FieldType,
+  GeoPoint,
+  SearchDocument,
+} from './search/fields.js';
+export { capabilitiesFromFields } from './search/fields.js';
+export type { OpenSearchBackendOptions } from './search/opensearch.js';
+export { OpenSearchBackend } from './search/opensearch.js';
+export type {
   AuthorisedEntity,
   AuthorisedFile,
   BaseEntity,
