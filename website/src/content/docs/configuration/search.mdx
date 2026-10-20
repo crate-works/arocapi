@@ -83,6 +83,7 @@ To rebuild an index, loop `index` over your entities.
 `createIndex()` creates the index with a mapping built from `fields`. It does nothing if the index exists with that
 mapping, and throws, naming the field, if it exists with another, so a changed declaration never mis-indexes silently.
 Delete the index and index your entities again to apply a change. `index` doesn't check that the entities exist.
+The index gets OpenSearch's default of one primary shard; with more than one, facet counts may be approximate.
 
 By default a write is searchable after OpenSearch's next refresh, about a second later, which keeps bulk indexing fast.
 Pass `refresh: 'wait_for'` if a write must be searchable as soon as it returns, or `true` in tests, at the cost of
@@ -107,7 +108,9 @@ matches exactly, and `NOT` is `must_not`.
 
 `PostgresBackend` keeps one row per entity in the `EntitySearch` table, which ships in arocapi's `prisma/models` and
 is created by `prisma migrate` with the rest of the schema. It needs no extensions and no `createIndex()`: a changed
-declaration applies to documents as you index them again.
+declaration applies to documents as you index them again. The backend's SQL names the table without a schema, so it
+must be on the connection's `search_path`; setting PrismaPg's `schema` option alone isn't enough. The default, `public`,
+works.
 
 `index(docs, { tx })` takes an optional Prisma transaction client, so a search document commits or rolls back with its
 entity. `index` throws, naming them, if any entity doesn't exist yet, and stores nothing from that batch. Deleting an
@@ -163,7 +166,8 @@ point, `{ lat, lng }`.
 - `boundingBox: { topRight, bottomLeft }` keeps only entities whose point is inside. A `bottomLeft.lng` above
   `topRight.lng` crosses the antimeridian; a `bottomLeft.lat` above `topRight.lat` is a 400.
 - `geohashPrecision` (1 to 12) adds a `geohashGrid` to the response: the matching entities in the box counted per
-  geohash cell at that precision. It needs a `boundingBox`.
+  geohash cell at that precision. It needs a `boundingBox`. Both backends return at most 10,000 cells, those with the
+  most matches.
 
 Without a `geo` field, either parameter is a 400 `VALIDATION_ERROR`.
 

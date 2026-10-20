@@ -60,7 +60,7 @@ export const listBackend: SearchBackend = {
         : hits.toSorted((a, b) => a.id.localeCompare(b.id));
 
     const counts = new Map<string, number>();
-    for (const language of hits.flatMap(({ inLanguage }) => inLanguage)) {
+    for (const language of hits.flatMap(({ inLanguage }) => [...new Set(inLanguage)])) {
       counts.set(language, (counts.get(language) ?? 0) + 1);
     }
 
