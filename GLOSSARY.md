@@ -39,3 +39,20 @@ accessible.
 accessible to it. It gets a 401 if the request is anonymous and a 403
 otherwise, never 404, because the entity is visible. _Avoid_: restricted,
 hidden.
+
+## How it is searched
+
+**Search backend**: What stores a repository's search documents and answers
+its searches, applying visibility itself. The library ships OpenSearch and
+Postgres ones, and a consumer may supply its own. _Avoid_: search engine,
+search provider, query builder.
+
+**Search document**: What a consumer supplies to make one entity searchable:
+its id and values for the declared fields. Separate from the Record and the
+Metadata, which the library never derives it from. _Avoid_: index document,
+search record.
+
+**Field declaration**: A consumer's statement of one field a search backend
+holds: its type and its roles in basic search, advanced search, filters,
+facets and sorting. A field with no role serves only visibility.
+_Avoid_: mapping, schema, index field.
