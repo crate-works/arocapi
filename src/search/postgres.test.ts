@@ -220,6 +220,9 @@ describe('PostgresBackend', () => {
     });
 
     await expect(searching).rejects.toBe(down);
+    await expect(PostgresBackend({ prisma: unreachable, fields }).index([{ id: 'http://example.com/1' }])).rejects.toBe(
+      down,
+    );
   });
 
   it('publishes capabilities from the field declarations', () => {
