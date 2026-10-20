@@ -1,5 +1,5 @@
 import { type Sql, sqltag as sql } from '@prisma/client/runtime/client';
-import type { BoundingBox } from './backend.js';
+import { type BoundingBox, GEOHASH_GRID_CELLS } from './backend.js';
 import type { GeoPoint } from './fields.js';
 
 const GEOHASH_ALPHABET = '0123456789bcdefghjkmnpqrstuvwxyz';
@@ -43,14 +43,16 @@ export const boundingBoxCondition = ({ topRight, bottomLeft }: BoundingBox): Sql
 };
 
 /**
- * Counts of the `matched` rows with a point, per geohash cell of `precision` characters
+ * Counts of the `matched` rows with a point, per geohash cell of `precision` characters (at most `GEOHASH_GRID_CELLS`, those with the most)
  */
 export const geohashGrid = (precision: number) => sql`(
   SELECT coalesce(jsonb_object_agg(cell.geohash, cell.count), '{}')
   FROM (
-    SELECT left(search.geohash, ${precision}::int) AS geohash, count(*)::int AS count
+    SELECT left(search.geohash, ${precision}::int) COLLATE "C" AS geohash, count(*)::int AS count
     FROM matched AS search
     WHERE search.geohash IS NOT NULL
     GROUP BY 1
+    ORDER BY count DESC, geohash
+    LIMIT ${GEOHASH_GRID_CELLS}::int
   ) AS cell
 )`;

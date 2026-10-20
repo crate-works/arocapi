@@ -58,6 +58,9 @@ export type SearchExtra = { score?: number; highlight?: Record<string, string[]>
 
 export type FacetBucket = { name: string; count: number };
 
+/** The most geohash cells a reference backend returns: those with the most hits */
+export const GEOHASH_GRID_CELLS = 10_000;
+
 export type SearchResult = {
   /** Exact */
   total: number;

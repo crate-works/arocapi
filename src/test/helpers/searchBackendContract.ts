@@ -533,6 +533,7 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
       it.each<[string, SearchVisibilityWhere<typeof visibilityFields>, number[]]>([
         ['everything for {}', {}, [1, 2, 3, 4]],
         ['a bare value as equals', { draft: true }, [1]],
+        ['a null-prototype object', Object.assign(Object.create(null), { draft: true }), [1]],
         ['not, including entities missing the field', { draft: { not: true } }, [2, 3, 4]],
         ['null to entities missing the field', { draft: null }, [3, 4]],
         ['equals null to entities missing the field', { draft: { equals: null } }, [3, 4]],
@@ -594,6 +595,9 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
         ['in without an array', { tags: { in: 'a' } }, 'tags'],
         ['a combinator without an array', { OR: { draft: true } }, 'OR'],
         ['a filter that is not an object', 'draft', 'filter'],
+        ['a filter that is a Map', new Map([['draft', true]]), 'filter'],
+        ['a nested filter that is a class instance', { AND: [new URL('https://example.org')] }, 'AND[0]'],
+        ['a field condition that is a Map', { draft: new Map([['not', true]]) }, 'draft'],
       ])('answers a filter with %s with a 500, logging the field', async (_case, where, field) => {
         await loadVisible(where);
         const logError = vi.spyOn(app.log, 'error');

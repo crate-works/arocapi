@@ -6,6 +6,7 @@ import type { Search_RequestBody, Search_Response } from '@opensearch-project/op
 import {
   type BoundingBox,
   type FacetBucket,
+  GEOHASH_GRID_CELLS,
   SearchQueryError,
   type SearchRequest,
   type SearchResult,
@@ -175,7 +176,11 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
       ];
       const geohashGrid: Search_RequestBody['aggs'] =
         geoField && geohashPrecision !== undefined
-          ? { [GEOHASH_GRID]: { geohash_grid: { field: geoField, precision: geohashPrecision } } }
+          ? {
+              [GEOHASH_GRID]: {
+                geohash_grid: { field: geoField, precision: geohashPrecision, size: GEOHASH_GRID_CELLS },
+              },
+            }
           : {};
 
       let response: Search_Response;

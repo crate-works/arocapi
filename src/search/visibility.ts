@@ -70,8 +70,14 @@ const COMBINATORS = ['AND', 'OR', 'NOT'] as const;
 const EQUALITY = ['equals', 'not', 'in', 'notIn'];
 const RANGE = ['lt', 'lte', 'gt', 'gte'] as const;
 
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Date);
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+
+  return prototype === Object.prototype || prototype === null;
+};
 
 /**
  * Check a search visibility filter against the field declarations, throwing an `Error` naming the field on any fault
