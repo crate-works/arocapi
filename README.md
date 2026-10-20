@@ -29,7 +29,7 @@ You need Node.js 22.18 or later, pnpm, and Docker with Docker Compose.
 
 ```sh
 pnpm install
-docker compose up -d   # MySQL, OpenSearch and the Oni UI
+docker compose up -d   # Postgres, OpenSearch and the Oni UI
 pnpm generate          # generate the Prisma client
 pnpm db:migrate        # apply migrations
 pnpm seed              # load the sample data in example/data
@@ -45,7 +45,7 @@ pnpm dev               # build and serve src/index.dev.ts on http://localhost:90
 | `pnpm test src/app.test.ts`   | Run one test file                                                    |
 | `pnpm test:watch`             | Run the tests in watch mode                                          |
 | `pnpm test:coverage`          | Run the tests with an HTML coverage report                           |
-| `pnpm dbconsole`              | Open a MySQL console on the development database                     |
+| `pnpm dbconsole`              | Open a psql console on the development database                      |
 | `pnpm --filter website dev`   | Run the documentation site locally                                   |
 | `pnpm --filter website build` | Build the documentation site, checking its diagrams and every link   |
 

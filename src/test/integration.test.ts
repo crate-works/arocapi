@@ -339,9 +339,13 @@ describe('Integration Tests', () => {
       const body = JSON.parse(response.body) as { total: number; entities: AuthorisedEntity[] };
 
       expect(response.statusCode).toBe(200);
-      expect(body.entities[0].name).toBe('test-audio.wav');
-      expect(body.entities[1].name).toBe('Test Person');
-      expect(body.entities[2].name).toBe('Test Object');
+      expect(body.entities.map((entity) => entity.name)).toEqual([
+        'Test Person',
+        'Test Object',
+        'Test Collection',
+        'test-audio.wav',
+        'collection-metadata.csv',
+      ]);
     });
   });
 
@@ -593,7 +597,7 @@ describe('Integration Tests', () => {
   describe('Visibility', () => {
     const entityUrl = (n: number) => encodeURIComponent(`http://example.com/entity/${n}`);
     const hideDrafts = {
-      OR: [{ meta: { path: '$.draft', equals: Prisma.AnyNull } }, { meta: { path: '$.draft', not: true } }],
+      OR: [{ meta: { path: ['draft'], equals: Prisma.AnyNull } }, { meta: { path: ['draft'], not: true } }],
     };
     const hideDraftsSearch = { bool: { must_not: { term: { 'meta.draft': true } } } };
     const stubHandlers = {

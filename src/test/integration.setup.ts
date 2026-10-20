@@ -1,5 +1,5 @@
 import { Client } from '@opensearch-project/opensearch';
-import { PrismaMariaDb } from '@prisma/adapter-mariadb';
+import { PrismaPg } from '@prisma/adapter-pg';
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 import type { Options } from '../app.js';
@@ -13,20 +13,11 @@ let opensearch: Client;
 export const getTestApp = () => fastify;
 
 export async function setupIntegrationTests() {
-  process.env.DATABASE_URL = 'mysql://root:password@localhost:3307/catalog_test';
+  process.env.DATABASE_URL = 'postgresql://postgres:password@localhost:5433/catalog_test';
   process.env.OPENSEARCH_URL = 'http://localhost:9201';
   process.env.NODE_ENV = 'test';
 
-  const adapter = new PrismaMariaDb({
-    host: 'localhost',
-    user: 'root',
-    password: 'password',
-    database: 'catalog_test',
-    port: 3307,
-    connectionLimit: 5,
-    // NOTE: This is required when using the default MariaDB server configuration with SSL disabled. In production, you should properly configure SSL and remove this option.
-    allowPublicKeyRetrieval: true,
-  });
+  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL, max: 5 });
   prisma = new PrismaClient({ adapter });
 
   opensearch = new Client({

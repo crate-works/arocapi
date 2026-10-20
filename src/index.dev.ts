@@ -1,7 +1,7 @@
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { Client } from '@opensearch-project/opensearch';
-import { PrismaMariaDb } from '@prisma/adapter-mariadb';
+import { PrismaPg } from '@prisma/adapter-pg';
 import Fastify from 'fastify';
 
 import arocapi, {
@@ -15,16 +15,10 @@ import arocapi, {
 import type { Entity, File } from './generated/prisma/client.js';
 import { PrismaClient } from './generated/prisma/client.js';
 
-const adapter = new PrismaMariaDb({
-  host: 'localhost',
-  user: 'root',
-  password: 'password',
-  database: 'catalog',
-  port: 3306,
-  connectionLimit: 5,
-  // NOTE: This is required when using the default MariaDB server configuration with SSL disabled. In production, you should properly configure SSL and remove this option.
-  allowPublicKeyRetrieval: true,
-});
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL environment variable is not set');
+}
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
 if (!process.env.OPENSEARCH_URL) {

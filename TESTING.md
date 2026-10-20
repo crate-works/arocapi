@@ -130,7 +130,7 @@ pnpm run test:coverage
 
 Tests use separate services from development:
 
-- **Database**: `localhost:3307` (catalog_test)
+- **Database**: Postgres 18 on `localhost:5433` (catalog_test)
 - **OpenSearch**: `localhost:9201`
 - **Environment**: Configured via `.env.test`
 
@@ -297,7 +297,7 @@ Tests run automatically on:
 
 The pipeline uses **GitHub Actions services** to provide:
 
-- MySQL 8 database (port 3307)
+- Postgres 18 database (port 5433)
 - OpenSearch 3 (port 9201)
 - Health checks to ensure service readiness
 

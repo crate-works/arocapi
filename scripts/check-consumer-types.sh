@@ -20,5 +20,5 @@ mkdir -p "$consumer/node_modules"
 mv "$tmp/extract/package" "$consumer/node_modules/arocapi"
 
 cd "$consumer"
-DATABASE_URL=mysql://unused PRISMA_HIDE_UPDATE_MESSAGE=1 "$root/node_modules/.bin/prisma" generate >/dev/null
+DATABASE_URL=postgresql://unused PRISMA_HIDE_UPDATE_MESSAGE=1 "$root/node_modules/.bin/prisma" generate >/dev/null
 "$root/node_modules/.bin/tsc" -p "$consumer"

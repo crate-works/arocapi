@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { Client } from '@opensearch-project/opensearch';
-import { PrismaMariaDb } from '@prisma/adapter-mariadb';
+import { PrismaPg } from '@prisma/adapter-pg';
 import arocapi, {
   AllPublicAccess,
   AllVisibleEntityFilter,
@@ -13,7 +13,7 @@ import Fastify from 'fastify';
 import { PrismaClient } from './generated/prisma/client.ts';
 
 const prisma = new PrismaClient({
-  adapter: new PrismaMariaDb(process.env.DATABASE_URL as string),
+  adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
 });
 const opensearch = new Client({ node: process.env.OPENSEARCH_URL });
 

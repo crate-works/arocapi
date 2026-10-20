@@ -20,7 +20,8 @@ and pass them in.
 
 ## `prisma`
 
-A Prisma 7 client generated from a schema that includes arocapi's `Entity` and `File` models;
+A Prisma 7 client for PostgreSQL 18 or later, created with the `@prisma/adapter-pg` driver adapter and generated from a
+schema that includes arocapi's `Entity` and `File` models;
 [Database](/getting-started/database/) shows how to link the models and generate it. Your schema can have other models
 too, and a `$extends` client or the client inside `$transaction` also qualifies. `ArocapiPrismaClient` names the shape
 arocapi needs. arocapi uses it for every route: listings, single entities, metadata and files. Registration throws

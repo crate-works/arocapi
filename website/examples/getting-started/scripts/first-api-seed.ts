@@ -1,10 +1,10 @@
 import { resolve } from 'node:path';
 import { Client } from '@opensearch-project/opensearch';
-import { PrismaMariaDb } from '@prisma/adapter-mariadb';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client.ts';
 
 const prisma = new PrismaClient({
-  adapter: new PrismaMariaDb(process.env.DATABASE_URL as string),
+  adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
 });
 const opensearch = new Client({ node: process.env.OPENSEARCH_URL });
 

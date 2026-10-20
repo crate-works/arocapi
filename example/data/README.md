@@ -269,8 +269,8 @@ To add new items to a collection:
 
 Entities are stored in the `Entity` table with:
 
-- `rocrateId`: Unique identifier (VARCHAR 2048)
-- `name`: Entity name (VARCHAR 1024)
+- `rocrateId`: Unique identifier (text)
+- `name`: Entity name (text)
 - `description`: Text description
 - `entityType`: Schema.org or PCDM type
 - `memberOf`: Parent collection reference

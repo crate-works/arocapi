@@ -11,9 +11,13 @@ fi
 
 docker compose -f docker-compose.test.yml up --wait --detach
 
-export DATABASE_URL='mysql://root:password@localhost:3307/catalog_test'
+export DATABASE_URL='postgresql://postgres:password@localhost:5433/catalog_test'
 prisma generate >/dev/null
 prisma migrate deploy
+prisma migrate diff --from-config-datasource --to-schema prisma --exit-code >/dev/null || {
+  echo 'Migrations have drifted from the Prisma schema; run prisma migrate dev' >&2
+  exit 1
+}
 
 if [ $# -gt 0 ]; then
   exec "$@"

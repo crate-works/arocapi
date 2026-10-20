@@ -16,15 +16,15 @@ jobs:
       pull-requests: write
 
     services:
-      mysql:
-        image: mysql:8
+      postgres:
+        image: postgres:18
         env:
-          MYSQL_ROOT_PASSWORD: password
-          MYSQL_DATABASE: catalog_test
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: catalog_test
         ports:
-          - 3307:3306
+          - 5433:5432
         options: >-
-          --health-cmd="mysqladmin ping"
+          --health-cmd="pg_isready -U postgres -d catalog_test"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=3
@@ -68,7 +68,12 @@ jobs:
       - name: Run database migrations
         run: pnpm run db:migrate
         env:
-          DATABASE_URL: mysql://root:password@localhost:3307/catalog_test
+          DATABASE_URL: postgresql://postgres:password@localhost:5433/catalog_test
+
+      - name: Check migrations match the schema
+        run: pnpm exec prisma migrate diff --from-config-datasource --to-schema prisma --exit-code
+        env:
+          DATABASE_URL: postgresql://postgres:password@localhost:5433/catalog_test
 
       - name: Lint (biome)
         run: pnpm run lint:biome
@@ -88,7 +93,7 @@ jobs:
       - name: Run unit tests
         run: pnpm run test:ci
         env:
-          DATABASE_URL: mysql://root:password@localhost:3307/catalog_test
+          DATABASE_URL: postgresql://postgres:password@localhost:5433/catalog_test
           OPENSEARCH_URL: http://localhost:9201
           NODE_ENV: test
 

@@ -17,7 +17,7 @@
   },
   "devDependencies": {
     "@opensearch-project/opensearch": "^3.9.0",
-    "@prisma/adapter-mariadb": "^7.10.1",
+    "@prisma/adapter-pg": "^7.10.1",
     "@types/node": "^26.6.5",
     "fastify": "^5.12.7",
     "happy-dom": "^21.0.3"

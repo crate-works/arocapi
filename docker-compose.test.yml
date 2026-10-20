@@ -2,19 +2,20 @@ name: arocapi
 
 services:
   test-db:
-    image: mysql:8
+    image: postgres:18
     restart: always
     ports:
-      - 3307:3306
+      - 5433:5432
     volumes:
-      - test-db-data:/var/lib/mysql
+      - test-pg-data:/var/lib/postgresql
     environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: catalog_test
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: catalog_test
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      timeout: 20s
-      retries: 10
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "catalog_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
 
   test-opensearch:
     image: opensearchproject/opensearch:3
@@ -44,5 +45,5 @@ services:
       retries: 3
 
 volumes:
-  test-db-data:
+  test-pg-data:
   test-opensearch-data:

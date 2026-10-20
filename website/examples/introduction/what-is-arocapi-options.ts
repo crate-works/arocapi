@@ -1,5 +1,5 @@
 import { Client } from '@opensearch-project/opensearch';
-import { PrismaMariaDb } from '@prisma/adapter-mariadb';
+import { PrismaPg } from '@prisma/adapter-pg';
 import {
   AllPublicAccess,
   AllVisibleEntityFilter,
@@ -15,7 +15,7 @@ declare const fileHandler: FileHandler;
 declare const roCrateHandler: RoCrateHandler;
 
 export const options: Options = {
-  prisma: new PrismaClient({ adapter: new PrismaMariaDb(process.env.DATABASE_URL as string) }),
+  prisma: new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) }),
   opensearch: new Client({ node: process.env.OPENSEARCH_URL }),
   fileHandler,
   roCrateHandler,

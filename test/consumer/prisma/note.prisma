@@ -1,5 +1,5 @@
 model Note {
   id       Int    @id @default(autoincrement())
-  entityId String @db.VarChar(768)
-  body     String @db.Text
+  entityId String
+  body     String
 }
