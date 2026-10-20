@@ -1,4 +1,5 @@
 import type { BackendSearchCapability, SearchBackend, SearchRequest, SearchResult } from '../../search/backend.js';
+import { capabilitiesFromFields } from '../../search/fields.js';
 import type { RequestContext } from '../../types/context.js';
 
 type Respond = (request: SearchRequest, context: RequestContext) => SearchResult | Promise<SearchResult>;
@@ -10,14 +11,7 @@ export const fakeSearchBackend = (capabilities: Partial<BackendSearchCapability>
   const requests: SearchRequest[] = [];
 
   const backend = {
-    capabilities: {
-      filters: {},
-      facets: {},
-      sorts: {},
-      searchTypes: { basic: {} },
-      geo: { supported: false },
-      ...capabilities,
-    },
+    capabilities: { ...capabilitiesFromFields({}), ...capabilities },
     search: async (request, context) => {
       requests.push(request);
 

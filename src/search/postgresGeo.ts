@@ -1,5 +1,34 @@
 import { type Sql, sqltag as sql } from '@prisma/client/runtime/client';
 import type { BoundingBox } from './backend.js';
+import type { GeoPoint } from './fields.js';
+
+const GEOHASH_ALPHABET = '0123456789bcdefghjkmnpqrstuvwxyz';
+
+/**
+ * A point's 12-character geohash
+ */
+export const geohash = ({ lat, lng }: GeoPoint) => {
+  const ranges = [
+    [-180, 180],
+    [-90, 90],
+  ];
+  let hash = '';
+  let bits = 0;
+  for (let bit = 0; bit < 60; bit++) {
+    const axis = bit % 2;
+    const range = ranges[axis];
+    const middle = (range[0] + range[1]) / 2;
+    const upper = (axis === 0 ? lng : lat) >= middle;
+    range[upper ? 0 : 1] = middle;
+    bits = bits * 2 + Number(upper);
+    if (bit % 5 === 4) {
+      hash += GEOHASH_ALPHABET[bits];
+      bits = 0;
+    }
+  }
+
+  return hash;
+};
 
 /**
  * A condition that the `search` row's point lies in the box, which may cross the antimeridian

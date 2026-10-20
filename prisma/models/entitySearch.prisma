@@ -13,7 +13,7 @@ model EntitySearch {
 
   entity  Entity                    @relation(fields: [id], references: [id], onDelete: Cascade)
 
-  @@index([values], type: Gin)
+  @@index([values(ops: JsonbPathOps)], type: Gin)
   @@index([basic], type: Gin)
   @@index([text], type: Gin)
   @@index([point], type: Gist)

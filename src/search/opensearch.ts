@@ -6,7 +6,6 @@ import type { Search_RequestBody, Search_Response } from '@opensearch-project/op
 import {
   type BoundingBox,
   type FacetBucket,
-  type RangeBound,
   SearchQueryError,
   type SearchRequest,
   type SearchResult,
@@ -15,11 +14,14 @@ import {
   capabilitiesFromFields,
   type FieldDeclaration,
   type FieldDeclarations,
+  isBasic,
+  resolveFields,
   type SearchDocument,
   storeDocuments,
 } from './fields.js';
 import { advancedQueryFor } from './opensearchAdvanced.js';
 import { visibilityQuery } from './opensearchVisibility.js';
+import { filtersCondition } from './requestFilters.js';
 import { checkSearchVisibility } from './visibility.js';
 
 export type OpenSearchBackendOptions<Fields extends FieldDeclarations> = {
@@ -46,16 +48,12 @@ const mappingFor = (declaration: FieldDeclaration) => {
   }
 };
 
-const DEFAULT_FACET_SIZE = 20;
 const FACET_ORDER: Record<string, SortOrder>[] = [{ _count: 'desc' }, { _key: 'asc' }];
 
 type TermsBucket = { key: string | number; key_as_string?: string; doc_count: number };
 
 // Not a valid field name, so it can't collide with a facet
 const GEOHASH_GRID = 'geohash-grid';
-
-// Epoch milliseconds, which date fields accept as well as numbers
-const toOpenSearchBound = (bound: RangeBound | undefined) => (bound instanceof Date ? bound.getTime() : bound);
 
 const geoBox = ({ topRight, bottomLeft }: BoundingBox) => ({
   top_left: { lat: topRight.lat, lon: bottomLeft.lng },
@@ -76,18 +74,13 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
   indexName = 'entities',
 }: OpenSearchBackendOptions<Fields>) => {
   const capabilities = capabilitiesFromFields(fields);
-  const declared = Object.entries(fields);
-  const geoField = declared.find(([, { type }]) => type === 'geo')?.[0];
+  const { basic, facets, geoField } = resolveFields(fields);
 
   const exactField = (name: string) => (fields[name]?.type === 'text' ? `${name}.exact` : name);
-  const isBasic = ({ type, basic }: FieldDeclaration) => (type === 'text' ? basic !== false : basic);
-  const basicFields = declared
-    .filter(([, declaration]) => isBasic(declaration))
-    .map(([name, { weight = 1 }]) => `${name}^${weight}`);
-  const facets = declared.filter(([, { facet }]) => facet);
+  const basicFields = basic.map(({ name, weight }) => `${name}^${weight}`);
   const highlight: Search_RequestBody['highlight'] = {
     fields: Object.fromEntries(
-      declared
+      Object.entries(fields)
         .filter(
           ([, declaration]) =>
             ['text', 'keyword'].includes(declaration.type) && (isBasic(declaration) || declaration.advanced),
@@ -116,7 +109,7 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
   ];
 
   const aggregations: Search_RequestBody['aggs'] = Object.fromEntries(
-    facets.map(([name, { type, facet }]) => [
+    facets.map(({ name, type, size }) => [
       name,
       type === 'date'
         ? {
@@ -132,7 +125,7 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
         : {
             terms: {
               field: exactField(name),
-              size: typeof facet === 'object' ? facet.size : DEFAULT_FACET_SIZE,
+              size,
               order: FACET_ORDER,
             },
           },
@@ -165,15 +158,7 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
     search: async (request: SearchRequest): Promise<SearchResult> => {
       const { boundingBox, geohashPrecision } = request;
       const filter: QueryContainer[] = [
-        ...Object.entries(request.filters.terms).map(([name, values]) => ({ terms: { [exactField(name)]: values } })),
-        ...Object.entries(request.filters.ranges).map(([name, ranges]) => ({
-          bool: {
-            should: ranges.map(({ gte, lte }) => ({
-              range: { [name]: { gte: toOpenSearchBound(gte), lte: toOpenSearchBound(lte) } },
-            })),
-            minimum_should_match: 1,
-          },
-        })),
+        visibilityQuery(filtersCondition(request.filters), exactField),
         ...(geoField && boundingBox ? [{ geo_bounding_box: { [geoField]: geoBox(boundingBox) } }] : []),
         visibilityQuery(checkSearchVisibility(fields, request.visibility), exactField),
       ];
@@ -219,7 +204,7 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
           return { id: _id as string, ...(Object.keys(searchExtra).length > 0 && { searchExtra }) };
         }),
         facets: Object.fromEntries(
-          facets.map(([name]) => [
+          facets.map(({ name }) => [
             name,
             (buckets[name] as { buckets: TermsBucket[] }).buckets.map(
               ({ key, key_as_string, doc_count }): FacetBucket => ({
@@ -269,12 +254,10 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
       const stored = storeDocuments(fields, docs);
 
       await bulk(
-        stored.flatMap(({ id, values }) => {
-          const point = geoField && values[geoField];
-          const source = point ? { ...values, [geoField]: toGeoPoint(point) } : values;
-
-          return [{ index: { _index: indexName, _id: id } }, { id, ...source }];
-        }),
+        stored.flatMap(({ id, values, point }) => [
+          { index: { _index: indexName, _id: id } },
+          { id, ...values, ...(geoField && point && { [geoField]: { lat: point.lat, lon: point.lng } }) },
+        ]),
       );
     },
 
@@ -288,10 +271,4 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
       );
     },
   };
-};
-
-const toGeoPoint = (point: unknown) => {
-  const { lat, lng } = point as { lat: number; lng: number };
-
-  return { lat, lon: lng };
 };

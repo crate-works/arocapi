@@ -228,6 +228,21 @@ describe('Search Route', () => {
         message: 'Internal server error',
       });
     });
+
+    it('answers a failing entity visibility filter with a 500, even when the query fails too', async () => {
+      await setup({
+        entityVisibilityFilter: async () => {
+          throw new Error('Session store down');
+        },
+        respond: () => {
+          throw new SearchQueryError('Too many clauses');
+        },
+      });
+
+      const response = await search({ query: 'test' });
+
+      expect(response.statusCode).toBe(500);
+    });
   });
 
   describe('the response', () => {

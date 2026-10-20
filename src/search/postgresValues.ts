@@ -1,13 +1,16 @@
 import { type Sql, sqltag as sql } from '@prisma/client/runtime/client';
-import type { FieldType } from './fields.js';
+import { type FieldType, type Scalar, toWire } from './fields.js';
+
+export const TEXT_SEARCH_CONFIG = sql`'simple'::regconfig`;
+
+/** A JSON path to a field's values in a search row: none when missing, one per array item */
+export const valuesPath = (field: string) => `$."${field}"[*]`;
 
 /**
- * A `FROM` item of a search row's values for a field, as `field.value` text: none when missing, one per array item
+ * A `FROM` item of a search row's values for a field, as `field.value` text
  */
 export const valuesOf = (field: string) =>
-  field === 'id'
-    ? sql`LATERAL (SELECT search.id AS value) AS field`
-    : sql`LATERAL (SELECT jsonb_path_query(search."values", ${`$."${field}"[*]`}::jsonpath) #>> '{}' AS value) AS field`;
+  sql`LATERAL (SELECT jsonb_path_query(search."values", ${valuesPath(field)}::jsonpath) #>> '{}' AS value) AS field`;
 
 /**
  * Text as the field's type, comparing as OpenSearch does: strings in code point order
@@ -27,5 +30,4 @@ export const typed = (type: FieldType, text: Sql) => {
 
 export const fieldValue = (type: FieldType) => typed(type, sql`field.value`);
 
-export const parameter = (type: FieldType, value: string | number | boolean | Date) =>
-  typed(type, sql`${value instanceof Date ? value.toISOString() : String(value)}::text`);
+export const parameter = (type: FieldType, value: Scalar) => typed(type, sql`${String(toWire(value))}::text`);

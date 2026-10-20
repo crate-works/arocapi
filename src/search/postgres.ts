@@ -3,15 +3,17 @@ import { SearchQueryError, type SearchRequest, type SearchResult } from './backe
 import {
   capabilitiesFromFields,
   type FieldDeclarations,
-  type GeoPoint,
+  resolveFields,
   type SearchDocument,
   storeDocuments,
+  toWire,
 } from './fields.js';
 import { advancedQueryFor } from './postgresAdvanced.js';
 import { valueBuckets, yearBuckets } from './postgresFacets.js';
-import { boundingBoxCondition, geohashGrid } from './postgresGeo.js';
-import { typed, valuesOf } from './postgresValues.js';
+import { boundingBoxCondition, geohash, geohashGrid } from './postgresGeo.js';
+import { TEXT_SEARCH_CONFIG, typed } from './postgresValues.js';
 import { visibilityCondition } from './postgresVisibility.js';
+import { filtersCondition } from './requestFilters.js';
 import { checkSearchVisibility } from './visibility.js';
 
 /**
@@ -28,33 +30,7 @@ export type PostgresBackendOptions<Fields extends FieldDeclarations> = {
   fields: Fields;
 };
 
-const TEXT_SEARCH_CONFIG = sql`'simple'::regconfig`;
-const DEFAULT_FACET_SIZE = 20;
 const WEIGHT_LABELS = ['D', 'C', 'B', 'A'];
-const GEOHASH_ALPHABET = '0123456789bcdefghjkmnpqrstuvwxyz';
-
-const geohash = ({ lat, lng }: GeoPoint) => {
-  const ranges = [
-    [-180, 180],
-    [-90, 90],
-  ];
-  let hash = '';
-  let bits = 0;
-  for (let bit = 0; bit < 60; bit++) {
-    const axis = bit % 2;
-    const range = ranges[axis];
-    const middle = (range[0] + range[1]) / 2;
-    const upper = (axis === 0 ? lng : lat) >= middle;
-    range[upper ? 0 : 1] = middle;
-    bits = bits * 2 + Number(upper);
-    if (bit % 5 === 4) {
-      hash += GEOHASH_ALPHABET[bits];
-      bits = 0;
-    }
-  }
-
-  return hash;
-};
 
 /**
  * Postgres search backend: holds one search document per entity in the `EntitySearch` table
@@ -64,16 +40,13 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
   fields,
 }: PostgresBackendOptions<Fields>) => {
   const capabilities = capabilitiesFromFields(fields);
-  const declared = Object.entries(fields);
-  const geoField = declared.find(([, { type }]) => type === 'geo')?.[0];
-  const textFields = declared.filter(([, { type }]) => type === 'text').map(([name]) => name);
+  const { basic, facets } = resolveFields(fields);
+  const textFields = Object.keys(fields).filter((name) => fields[name].type === 'text');
 
-  const basicVectors = declared
-    .filter(([, { type, basic }]) => (type === 'text' && basic !== false) || (type === 'keyword' && basic))
-    .map(
-      ([name, { weight = 1 }]) =>
-        sql`coalesce(setweight(to_tsvector(${TEXT_SEARCH_CONFIG}, docs."values" -> ${name}), ${WEIGHT_LABELS[weight - 1]}::"char"), '')`,
-    );
+  const basicVectors = basic.map(
+    ({ name, weight }) =>
+      sql`coalesce(setweight(to_tsvector(${TEXT_SEARCH_CONFIG}, docs."values" -> ${name}), ${WEIGHT_LABELS[weight - 1]}::"char"), '')`,
+  );
   const basicVector = basicVectors.length > 0 ? join(basicVectors, ' || ') : sql`''::tsvector`;
 
   // Built as text so each field keeps its own positions; tsvector `||` would shift them towards the 16383 limit
@@ -85,25 +58,14 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
     FROM unnest(${textFields}::text[]) AS field, unnest(to_tsvector(${TEXT_SEARCH_CONFIG}, docs."values" -> field))
   )`;
 
-  const facets = declared
-    .filter(([, { facet }]) => facet)
-    .map(([name, { type, facet }]) => {
-      const buckets =
-        type === 'date'
-          ? yearBuckets(name)
-          : valueBuckets(name, typeof facet === 'object' ? facet.size : DEFAULT_FACET_SIZE);
-
-      return sql`jsonb_build_object(${name}::text, ${buckets})`;
-    });
-
-  const orderFor = ({ sort, order }: SearchRequest) =>
-    sort === 'relevance'
-      ? sql`search.rank DESC`
-      : sql`${typed(fields[sort].type, sql`search."values" ->> ${sort}::text`)} ${order === 'asc' ? sql`ASC` : sql`DESC`} NULLS LAST`;
+  const facetBuckets = facets.map(
+    ({ name, type, size }) =>
+      sql`jsonb_build_object(${name}::text, ${type === 'date' ? yearBuckets(name) : valueBuckets(name, size)})`,
+  );
 
   const queryFor = (request: SearchRequest) => {
     if (request.searchType === 'advanced') {
-      return advancedQueryFor(request.query, fields, TEXT_SEARCH_CONFIG);
+      return advancedQueryFor(request.query, fields);
     }
     if (request.query.trim() === '') {
       return { condition: sql`TRUE`, rank: sql`0` };
@@ -120,39 +82,38 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
       const { condition: matches, rank } = queryFor(request);
       const conditions = [
         matches,
-        ...Object.entries(request.filters.terms).map(
-          ([name, values]) => sql`EXISTS (SELECT FROM ${valuesOf(name)} WHERE field.value = ANY(${values}::text[]))`,
-        ),
-        ...Object.entries(request.filters.ranges).map(([name, ranges]) =>
-          visibilityCondition(
-            { type: 'or', clauses: ranges.map((bounds) => ({ type: 'range', field: name, bounds })) },
-            fields,
-          ),
-        ),
+        visibilityCondition(filtersCondition(request.filters), fields),
         ...(request.boundingBox ? [boundingBoxCondition(request.boundingBox)] : []),
         visibilityCondition(checkSearchVisibility(fields, request.visibility), fields),
       ];
 
-      const { geohashPrecision } = request;
+      const { sort, order, geohashPrecision } = request;
+      const [key, direction] =
+        sort === 'relevance'
+          ? [rank, sql`DESC`]
+          : [
+              typed(fields[sort].type, sql`search."values" ->> ${sort}::text`),
+              order === 'asc' ? sql`ASC NULLS LAST` : sql`DESC NULLS LAST`,
+            ];
       const [result] = await asQueryErrors(
         prisma.$queryRaw<(Pick<SearchResult, 'total' | 'facets' | 'geohashGrid'> & { hits: string[] })[]>(sql`
         WITH matched AS (
-          SELECT search.id, search."values", search.geohash, ${rank} AS rank
+          SELECT search.id, search."values", search.geohash, ${key} AS key
           FROM entity_search AS search
           WHERE ${join(conditions, ' AND ')}
         )
         SELECT
           (SELECT count(*)::int FROM matched) AS total,
           (
-            SELECT coalesce(jsonb_agg(page.id ORDER BY page.position), '[]')
+            SELECT coalesce(jsonb_agg(page.id ORDER BY page.key ${direction}, page.id COLLATE "C"), '[]')
             FROM (
-              SELECT search.id, row_number() OVER (ORDER BY ${orderFor(request)}, search.id COLLATE "C") AS position
+              SELECT search.id, search.key
               FROM matched AS search
-              ORDER BY position
+              ORDER BY search.key ${direction}, search.id COLLATE "C"
               LIMIT ${request.limit}::int OFFSET ${request.offset}::int
             ) AS page
           ) AS hits,
-          ${join([sql`'{}'::jsonb`, ...facets], ' || ')} AS facets,
+          ${join([sql`'{}'::jsonb`, ...facetBuckets], ' || ')} AS facets,
           ${geohashPrecision === undefined ? sql`NULL` : geohashGrid(geohashPrecision)} AS "geohashGrid"
       `),
       );
@@ -172,16 +133,16 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
     index: async (docs: SearchDocument<Fields>[], { tx }: { tx?: PostgresClient } = {}) => {
       const stored = storeDocuments(fields, docs);
 
-      const rows = [...new Map(stored.map((doc) => [doc.id, doc])).values()].map(({ id, values }) => {
-        const location = geoField && (values[geoField] as GeoPoint | undefined);
-        const json = Object.fromEntries(
-          Object.entries(values)
-            .filter(([name]) => name !== geoField)
-            .map(([name, value]) => [name, Array.isArray(value) ? value.map(toJson) : toJson(value)]),
-        );
-
-        return { id, values: json, ...(location && { ...location, geohash: geohash(location) }) };
-      });
+      const rows = [...new Map(stored.map((doc) => [doc.id, doc])).values()].map(({ id, values, point }) => ({
+        id,
+        values: Object.fromEntries(
+          Object.entries(values).map(([name, value]) => [
+            name,
+            Array.isArray(value) ? value.map(toWire) : toWire(value),
+          ]),
+        ),
+        ...(point && { ...point, geohash: geohash(point) }),
+      }));
 
       const missing = await (tx ?? prisma).$queryRaw<{ id: string }[]>(sql`
         WITH docs AS (
@@ -241,5 +202,3 @@ const asQueryErrors = async <T>(query: PromiseLike<T>) => {
     throw error;
   }
 };
-
-const toJson = (value: unknown) => (value instanceof Date ? value.toISOString() : value);

@@ -1,4 +1,12 @@
-import { type FieldDeclaration, type FieldDeclarations, type FieldType, parseDate } from './fields.js';
+import {
+  DATE_FORMS,
+  type FieldDeclaration,
+  type FieldDeclarations,
+  type FieldType,
+  type Scalar,
+  storeScalar,
+  withId,
+} from './fields.js';
 
 type ValueOf<Type extends FieldType> = Type extends 'number'
   ? number
@@ -48,8 +56,6 @@ export type SearchVisibilityWhere<Fields extends FieldDeclarations = FieldDeclar
   ? UntypedWhere
   : TypedWhere<Fields>;
 
-type Scalar = string | number | boolean | Date;
-
 /**
  * A checked search visibility filter, with dates as UTC instants
  */
@@ -67,34 +73,28 @@ const RANGE = ['lt', 'lte', 'gt', 'gte'] as const;
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Date);
 
-const ID: FieldDeclaration = { type: 'keyword' };
-
 /**
  * Check a search visibility filter against the field declarations, throwing an `Error` naming the field on any fault
  */
 export const checkSearchVisibility = (fields: FieldDeclarations, where: unknown): VisibilityCondition => {
+  const declarations = withId(fields);
   const fail = (key: string, problem: string): never => {
     throw new Error(`Search visibility filter: "${key}" ${problem}`);
   };
 
   const scalar = (field: string, type: FieldType, value: unknown): Scalar => {
-    switch (type) {
-      case 'text':
-      case 'keyword':
-        return typeof value === 'string' ? value : fail(field, `must be a string, not ${JSON.stringify(value)}`);
-      case 'number':
-        return typeof value === 'number' && Number.isFinite(value)
-          ? value
-          : fail(field, `must be a finite number, not ${JSON.stringify(value)}`);
-      case 'boolean':
-        return typeof value === 'boolean' ? value : fail(field, `must be a boolean, not ${JSON.stringify(value)}`);
-      default: {
-        const date = value instanceof Date ? value : typeof value === 'string' ? parseDate(value) : undefined;
-        return date && !Number.isNaN(date.getTime())
-          ? date
-          : fail(field, `must be a Date or a YYYY, YYYY-MM, YYYY-MM-DD or RFC 3339 date, not ${JSON.stringify(value)}`);
-      }
+    if (type === 'date' && value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value;
     }
+
+    const stored = storeScalar(type, value);
+    if ('problem' in stored) {
+      const problem = type === 'date' ? `must be a Date or ${DATE_FORMS}` : stored.problem;
+
+      return fail(field, `${problem}, not ${JSON.stringify(value)}`);
+    }
+
+    return stored.value as Scalar;
   };
 
   const equals = (field: string, type: FieldType, value: unknown): VisibilityCondition =>
@@ -173,7 +173,7 @@ export const checkSearchVisibility = (fields: FieldDeclarations, where: unknown)
         continue;
       }
 
-      const declaration = key === 'id' ? ID : Object.hasOwn(fields, key) ? fields[key] : undefined;
+      const declaration = Object.hasOwn(declarations, key) ? declarations[key] : undefined;
       if (!declaration) {
         return fail(key, "isn't a declared field");
       }

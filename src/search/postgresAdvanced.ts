@@ -1,7 +1,7 @@
 import { join, type Sql, sqltag as sql } from '@prisma/client/runtime/client';
 import { type AdvancedQuery, SearchQueryError } from './backend.js';
 import { type FieldDeclarations, parseDate } from './fields.js';
-import { fieldValue, parameter, valuesOf } from './postgresValues.js';
+import { fieldValue, parameter, TEXT_SEARCH_CONFIG, valuesOf } from './postgresValues.js';
 
 // A tsquery's lexemes as text: single-quoted, with quotes doubled
 const LEXEME = "'((?:[^']|'')*)'";
@@ -31,13 +31,13 @@ const exactValue = (field: string, type: string, value: string) => {
  * Translate an advanced query tree to a SQL condition on the `search` row, and a rank over its positive text matches
  * Text values match on the `text` tsvector, whose lexemes are prefixed `<field>.`
  */
-export const advancedQueryFor = (query: AdvancedQuery, fields: FieldDeclarations, config: Sql) => {
+export const advancedQueryFor = (query: AdvancedQuery, fields: FieldDeclarations) => {
   const ranked: Sql[] = [];
 
   const tsquery = (field: string, value: string, phrase: boolean) => {
     const parsed = phrase
-      ? sql`phraseto_tsquery(${config}, ${value}::text)`
-      : sql`plainto_tsquery(${config}, ${value}::text)`;
+      ? sql`phraseto_tsquery(${TEXT_SEARCH_CONFIG}, ${value}::text)`
+      : sql`plainto_tsquery(${TEXT_SEARCH_CONFIG}, ${value}::text)`;
 
     return sql`regexp_replace(${parsed}::text, ${LEXEME}::text, ${`'${field}.\\1'`}::text, 'g')::tsquery`;
   };
@@ -45,14 +45,10 @@ export const advancedQueryFor = (query: AdvancedQuery, fields: FieldDeclarations
   const translate = (node: AdvancedQuery, negated: boolean): Sql => {
     switch (node.type) {
       case 'and':
-        return sql`(${join(
-          node.clauses.map((clause) => translate(clause, negated)),
-          ' AND ',
-        )})`;
       case 'or':
         return sql`(${join(
           node.clauses.map((clause) => translate(clause, negated)),
-          ' OR ',
+          node.type === 'and' ? ' AND ' : ' OR ',
         )})`;
       case 'not':
         return sql`NOT ${translate(node.clause, !negated)}`;

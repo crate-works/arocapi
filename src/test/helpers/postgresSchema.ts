@@ -22,10 +22,7 @@ export const isolatedPrisma = async (schema: string) => {
     .map(({ name }) => name)
     .sort();
   for (const name of names) {
-    const sql = await readFile(new URL(`${name}/migration.sql`, migrations), 'utf8');
-    for (const statement of sql.split(/;\s*$/m).filter((part) => part.replace(/--.*$/gm, '').trim())) {
-      await prisma.$executeRawUnsafe(statement);
-    }
+    await prisma.$executeRawUnsafe(await readFile(new URL(`${name}/migration.sql`, migrations), 'utf8'));
   }
 
   return {

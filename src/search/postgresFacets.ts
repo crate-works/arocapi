@@ -9,10 +9,10 @@ export const valueBuckets = (name: string, size: number) => sql`(
     jsonb_build_object('name', bucket.name, 'count', bucket.count) ORDER BY bucket.count DESC, bucket.name COLLATE "C"
   ), '[]')
   FROM (
-    SELECT field.value AS name, count(DISTINCT search.id)::int AS count
-    FROM matched AS search, ${valuesOf(name)}
-    GROUP BY field.value
-    ORDER BY count DESC, field.value COLLATE "C"
+    SELECT value.name, count(*)::int AS count
+    FROM matched AS search, LATERAL (SELECT DISTINCT field.value AS name FROM ${valuesOf(name)}) AS value
+    GROUP BY value.name
+    ORDER BY count DESC, value.name COLLATE "C"
     LIMIT ${size}::int
   ) AS bucket
 )`;
@@ -25,8 +25,10 @@ export const yearBuckets = (name: string) => sql`(
     jsonb_build_object('name', to_char(bucket.year, 'YYYY'), 'count', bucket.count) ORDER BY bucket.year
   ), '[]')
   FROM (
-    SELECT date_trunc('year', ${fieldValue('date')} AT TIME ZONE 'UTC') AS year, count(DISTINCT search.id)::int AS count
-    FROM matched AS search, ${valuesOf(name)}
-    GROUP BY year
+    SELECT value.year, count(*)::int AS count
+    FROM matched AS search, LATERAL (
+      SELECT DISTINCT date_trunc('year', ${fieldValue('date')} AT TIME ZONE 'UTC') AS year FROM ${valuesOf(name)}
+    ) AS value
+    GROUP BY value.year
   ) AS bucket
 )`;

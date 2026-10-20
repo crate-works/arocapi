@@ -1,3 +1,5 @@
+import type { BackendSearchCapability } from './backend.js';
+
 export type FieldType = 'text' | 'keyword' | 'date' | 'number' | 'boolean' | 'geo';
 
 export type FieldDeclaration = {
@@ -80,19 +82,6 @@ const validateFields = (fields: FieldDeclarations) => {
   }
 };
 
-type Labelled = { label?: string };
-
-/**
- * What a search backend publishes in `/capabilities` and arocapi validates requests against
- */
-export type BackendSearchCapability = {
-  filters: Record<string, Labelled & { type: 'string' | 'date' | 'number' | 'boolean' }>;
-  facets: Record<string, Labelled>;
-  sorts: Record<string, Labelled>;
-  searchTypes: { basic: Record<string, never>; advanced?: { fields: Record<string, Labelled> } };
-  geo: { supported: boolean };
-};
-
 /**
  * Derive a search backend's `/capabilities`-shaped capabilities from its field declarations
  */
@@ -100,9 +89,9 @@ export const capabilitiesFromFields = (fields: FieldDeclarations): BackendSearch
   validateFields(fields);
 
   const declared = Object.entries(fields);
-  const publish = <Published>(
+  const publish = <Published extends object>(
     hasRole: (declaration: FieldDeclaration) => unknown,
-    describe: (declaration: FieldDeclaration) => Published,
+    describe: (declaration: FieldDeclaration) => Published = () => ({}) as Published,
   ) =>
     Object.fromEntries(
       declared
@@ -113,29 +102,51 @@ export const capabilitiesFromFields = (fields: FieldDeclarations): BackendSearch
         ]),
     );
 
-  const advanced = publish(
-    ({ advanced }) => advanced,
-    () => ({}),
-  );
+  const advanced = publish(({ advanced }) => advanced);
 
   return {
-    filters: publish(isFilter, ({ type }) => ({
-      type: type === 'text' || type === 'keyword' ? 'string' : (type as 'date' | 'number' | 'boolean'),
-    })),
-    facets: publish(
-      ({ facet }) => facet,
-      () => ({}),
+    filters: publish(
+      ({ filter, facet }) => filter || facet,
+      ({ type }) => ({
+        type: type === 'text' || type === 'keyword' ? 'string' : (type as 'date' | 'number' | 'boolean'),
+      }),
     ),
-    sorts: publish(
-      ({ sort }) => sort,
-      () => ({}),
-    ),
+    facets: publish(({ facet }) => facet),
+    sorts: publish(({ sort }) => sort),
     searchTypes: { basic: {}, ...(Object.keys(advanced).length > 0 && { advanced: { fields: advanced } }) },
     geo: { supported: declared.some(([, { type }]) => type === 'geo') },
   };
 };
 
-const isFilter = (declaration: FieldDeclaration) => Boolean(declaration.filter || declaration.facet);
+const DEFAULT_FACET_SIZE = 20;
+
+export const isBasic = ({ type, basic }: FieldDeclaration) => (type === 'text' ? basic !== false : Boolean(basic));
+
+/**
+ * The declarations with their defaults applied, as a search backend builds its queries from them
+ */
+export const resolveFields = (fields: FieldDeclarations) => {
+  const declared = Object.entries(fields);
+
+  return {
+    basic: declared
+      .filter(([, declaration]) => isBasic(declaration))
+      .map(([name, { type, weight = 1 }]) => ({ name, type, weight })),
+    facets: declared
+      .filter(([, { facet }]) => facet)
+      .map(([name, { type, facet }]) => ({
+        name,
+        type,
+        size: typeof facet === 'object' ? facet.size : DEFAULT_FACET_SIZE,
+      })),
+    geoField: declared.find(([, { type }]) => type === 'geo')?.[0],
+  };
+};
+
+/**
+ * The declarations with the implicit `id` field, which a search visibility filter can also use
+ */
+export const withId = (fields: FieldDeclarations): FieldDeclarations => ({ ...fields, id: { type: 'keyword' } });
 
 export type GeoPoint = { lat: number; lng: number };
 
@@ -160,12 +171,16 @@ export type SearchDocument<Fields extends FieldDeclarations = FieldDeclarations>
   -readonly [Name in keyof Fields]?: ValueOf<Fields[Name]>;
 };
 
-type StoredScalar = string | number | boolean | Date | GeoPoint;
+export type Scalar = string | number | boolean | Date;
+
+/** A value as JSON, with dates as ISO strings */
+export const toWire = (value: Scalar) => (value instanceof Date ? value.toISOString() : value);
 
 /**
- * A validated search document: dates are their first UTC instant and missing fields are left out
+ * A validated search document: dates are their first UTC instant, missing fields are left out and the geo field's
+ * value is the point
  */
-export type StoredSearchDocument = { id: string; values: Record<string, StoredScalar | StoredScalar[]> };
+type StoredSearchDocument = { id: string; values: Record<string, Scalar | Scalar[]>; point?: GeoPoint };
 
 const DATE = /^(\d{4})(?:-(\d{2})(?:-(\d{2})(?:[Tt ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?([Zz]|[+-]\d{2}:\d{2})?)?)?)?$/;
 
@@ -216,16 +231,19 @@ const isGeoPoint = (value: unknown): value is GeoPoint => {
   return typeof lat === 'number' && typeof lng === 'number' && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
 };
 
-type Stored = { value: StoredScalar } | { problem: string };
+export const DATE_FORMS = 'a YYYY, YYYY-MM, YYYY-MM-DD or RFC 3339 date';
 
-const storeScalar = (type: FieldType, value: unknown): Stored => {
+/**
+ * Check a value against a field type, with a date as its first UTC instant
+ */
+export const storeScalar = (type: FieldType, value: unknown): { value: Scalar | GeoPoint } | { problem: string } => {
   switch (type) {
     case 'text':
     case 'keyword':
       return typeof value === 'string' ? { value } : { problem: 'must be a string' };
     case 'date': {
       const date = typeof value === 'string' ? parseDate(value) : undefined;
-      return date ? { value: date } : { problem: 'must be a YYYY, YYYY-MM, YYYY-MM-DD or RFC 3339 date' };
+      return date ? { value: date } : { problem: `must be ${DATE_FORMS}` };
     }
     case 'number':
       return typeof value === 'number' && Number.isFinite(value) ? { value } : { problem: 'must be a finite number' };
@@ -251,7 +269,7 @@ export const storeDocuments = (fields: FieldDeclarations, docs: SearchDocument[]
       throw new Error(`Search document "${id}": "${key}" ${problem}`);
     };
 
-    const values: StoredSearchDocument['values'] = {};
+    const stored: StoredSearchDocument = { id, values: {} };
     for (const [key, value] of Object.entries(rest)) {
       const declaration = Object.hasOwn(fields, key) ? fields[key] : undefined;
       if (!declaration) {
@@ -261,12 +279,16 @@ export const storeDocuments = (fields: FieldDeclarations, docs: SearchDocument[]
         return fail(key, 'takes a single value, not an array');
       }
 
-      const stored = (Array.isArray(value) ? value : [value]).map((item) => {
+      const items = (Array.isArray(value) ? value : [value]).map((item) => {
         const result = storeScalar(declaration.type, item);
         return 'value' in result ? result.value : fail(key, `${result.problem}, not ${JSON.stringify(item)}`);
       });
-      values[key] = Array.isArray(value) ? stored : stored[0];
+      if (declaration.type === 'geo') {
+        stored.point = items[0] as GeoPoint;
+      } else {
+        stored.values[key] = Array.isArray(value) ? (items as Scalar[]) : (items[0] as Scalar);
+      }
     }
 
-    return { id, values };
+    return stored;
   });

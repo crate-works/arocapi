@@ -20,6 +20,7 @@ import { setupValidation } from './utils/validation.js';
 
 export type {
   AdvancedQuery,
+  BackendSearchCapability,
   BoundingBox,
   FacetBucket,
   RangeBound,
@@ -31,7 +32,6 @@ export type {
 } from './search/backend.js';
 export { SearchQueryError } from './search/backend.js';
 export type {
-  BackendSearchCapability,
   FieldDeclaration,
   FieldDeclarations,
   FieldType,

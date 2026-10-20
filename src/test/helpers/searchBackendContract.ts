@@ -519,6 +519,7 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
         ['a number with equality and a bound together', { pages: { not: 10, gte: 5 } }, [2, 4]],
         ['id', { id: id(2) }, [2]],
         ['notIn on id', { id: { notIn: [id(1), id(2)] } }, [3, 4]],
+        ['null on id to no entities', { id: null }, []],
         ['several keys as AND', { tags: 'b', pages: 5 }, [2]],
         ['AND', { AND: [{ tags: 'b' }, { draft: { not: true } }] }, [2]],
         ['OR', { OR: [{ draft: true }, { pages: 20 }] }, [1, 4]],

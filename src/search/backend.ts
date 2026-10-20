@@ -1,8 +1,19 @@
 import type { RequestContext } from '../types/context.js';
-import type { BackendSearchCapability, GeoPoint, SearchDocument } from './fields.js';
+import type { GeoPoint, SearchDocument } from './fields.js';
 import type { SearchVisibilityWhere } from './visibility.js';
 
-export type { BackendSearchCapability } from './fields.js';
+type Labelled = { label?: string };
+
+/**
+ * What a search backend publishes in `/capabilities` and arocapi validates requests against
+ */
+export type BackendSearchCapability = {
+  filters: Record<string, Labelled & { type: 'string' | 'date' | 'number' | 'boolean' }>;
+  facets: Record<string, Labelled>;
+  sorts: Record<string, Labelled>;
+  searchTypes: { basic: Record<string, never>; advanced?: { fields: Record<string, Labelled> } };
+  geo: { supported: boolean };
+};
 
 /**
  * A parsed advanced query
@@ -20,13 +31,12 @@ export type RangeFilter = { gte?: RangeBound; lte?: RangeBound };
 
 export type BoundingBox = { topRight: GeoPoint; bottomLeft: GeoPoint };
 
+export type SearchQuery = { searchType: 'basic'; query: string } | { searchType: 'advanced'; query: AdvancedQuery };
+
 /**
  * A validated, normalised search, as arocapi hands it to a search backend
  */
-export type SearchRequest = (
-  | { searchType: 'basic'; query: string }
-  | { searchType: 'advanced'; query: AdvancedQuery }
-) & {
+export type SearchRequest = SearchQuery & {
   filters: {
     /** Field name → values, any of which matches */
     terms: Record<string, string[]>;

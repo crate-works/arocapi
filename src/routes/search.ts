@@ -44,6 +44,7 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
     searchVisibilityFilter,
   } = opts;
   const { capabilities } = backend;
+  const noFacets = Object.fromEntries(Object.keys(capabilities.facets).map((name) => [name, []]));
 
   const violations = ({ searchType, filters, sort }: SearchParams) => [
     ...(Object.hasOwn(capabilities.searchTypes, searchType)
@@ -75,7 +76,7 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
         return reply.code(400).send(createValidationError('The request parameters are invalid', problems));
       }
 
-      const { searchType, query, boundingBox, geohashPrecision, limit, offset, sort, order } = request.body;
+      const { searchType, query, filters: _, boundingBox, geohashPrecision, ...paging } = request.body;
 
       const searchQuery = normaliseQuery(searchType, query, capabilities.searchTypes.advanced?.fields ?? {});
       if ('problem' in searchQuery) {
@@ -85,20 +86,17 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
       }
 
       const context = { request, fastify };
-      const [visibilityWhere, visibility] = await Promise.all([
-        entityVisibilityFilter(context),
-        searchVisibilityFilter(context),
-      ]);
+      // Only the database query needs it, so the search needn't wait; awaited before any reply so its error wins
+      const visibilityWhere = Promise.resolve(entityVisibilityFilter(context));
+      visibilityWhere.catch(() => undefined);
+      const visibility = await searchVisibilityFilter(context);
 
       const searchRequest: SearchRequest = {
         ...searchQuery,
         filters,
         ...(boundingBox && { boundingBox }),
         ...(geohashPrecision !== undefined && { geohashPrecision }),
-        limit,
-        offset,
-        sort,
-        order,
+        ...paging,
         visibility,
       };
 
@@ -107,6 +105,7 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
       try {
         result = await backend.search(searchRequest, context);
       } catch (error) {
+        await visibilityWhere;
         if (!(error instanceof SearchQueryError)) {
           throw error;
         }
@@ -119,7 +118,7 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
 
       const dbEntities = await prisma.entity.findMany({
         where: {
-          AND: [{ id: { in: result.hits.map(({ id }) => id) } }, visibilityWhere],
+          AND: [{ id: { in: result.hits.map(({ id }) => id) } }, await visibilityWhere],
         },
         include: { file: { select: { id: true } } },
       });
@@ -146,10 +145,7 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
         total: result.total,
         searchTime,
         entities,
-        facets: {
-          ...Object.fromEntries(Object.keys(capabilities.facets).map((name) => [name, []])),
-          ...result.facets,
-        },
+        facets: { ...noFacets, ...result.facets },
         ...(result.geohashGrid && { geohashGrid: result.geohashGrid }),
       };
     },

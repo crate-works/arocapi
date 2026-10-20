@@ -11,7 +11,7 @@ CREATE TABLE "entity_search" (
 );
 
 -- CreateIndex
-CREATE INDEX "entity_search_values_idx" ON "entity_search" USING GIN ("values");
+CREATE INDEX "entity_search_values_idx" ON "entity_search" USING GIN ("values" jsonb_path_ops);
 
 -- CreateIndex
 CREATE INDEX "entity_search_basic_idx" ON "entity_search" USING GIN ("basic");

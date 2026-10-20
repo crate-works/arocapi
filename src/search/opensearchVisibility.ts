@@ -1,7 +1,6 @@
 import type { QueryContainer } from '@opensearch-project/opensearch/api/_types/_common.query_dsl.js';
+import { toWire } from './fields.js';
 import type { VisibilityCondition } from './visibility.js';
-
-const toTerm = (value: string | number | boolean | Date) => (value instanceof Date ? value.toISOString() : value);
 
 /**
  * Translate a checked search visibility filter to an OpenSearch filter, comparing each field's exact form
@@ -21,14 +20,14 @@ export const visibilityQuery = (
       case 'not':
         return { bool: { must_not: [translate(node.clause)] } };
       case 'in':
-        return { terms: { [exactField(node.field)]: node.values.map(toTerm) } };
+        return { terms: { [exactField(node.field)]: node.values.map(toWire) } };
       case 'present':
         return { exists: { field: node.field } };
       case 'range':
         return {
           range: {
             [node.field]: Object.fromEntries(
-              Object.entries(node.bounds).map(([bound, value]) => [bound, toTerm(value)]),
+              Object.entries(node.bounds).map(([bound, value]) => [bound, toWire(value)]),
             ),
           },
         };

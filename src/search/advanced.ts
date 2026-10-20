@@ -1,4 +1,4 @@
-import type { AdvancedQuery } from './backend.js';
+import type { AdvancedQuery, SearchQuery } from './backend.js';
 
 /** In code points, for basic and advanced queries */
 const MAX_QUERY_LENGTH = 1024;
@@ -204,8 +204,6 @@ const clausesIn = (query: AdvancedQuery): number => {
       return 1;
   }
 };
-
-type SearchQuery = { searchType: 'basic'; query: string } | { searchType: 'advanced'; query: AdvancedQuery };
 
 const parseWithinCaps = (query: string, advancedFields: Record<string, unknown>): AdvancedQuery => {
   const tree = parse(query, advancedFields);

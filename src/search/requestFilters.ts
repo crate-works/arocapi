@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { BackendSearchCapability, BoundingBox, RangeBound, RangeFilter, SearchRequest } from './backend.js';
 import { parseDate } from './fields.js';
+import type { VisibilityCondition } from './visibility.js';
 
 const boundSchema = z.union([z.string(), z.number()]);
 const rangeSchema = z
@@ -130,6 +131,22 @@ export const splitFilters = (declared: BackendSearchCapability['filters'], filte
 
   return { filters: split, violations };
 };
+
+/**
+ * A request's filters as one condition: each filter must match, by any of its values or ranges
+ */
+export const filtersCondition = ({ terms, ranges }: SearchRequest['filters']): VisibilityCondition => ({
+  type: 'and',
+  clauses: [
+    ...Object.entries(terms).map(([field, values]): VisibilityCondition => ({ type: 'in', field, values })),
+    ...Object.entries(ranges).map(
+      ([field, filters]): VisibilityCondition => ({
+        type: 'or',
+        clauses: filters.map((bounds) => ({ type: 'range', field, bounds })),
+      }),
+    ),
+  ],
+});
 
 /**
  * Problems with a request's geo parameters, given whether the backend supports geo
