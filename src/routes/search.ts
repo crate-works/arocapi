@@ -3,10 +3,16 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { normaliseQuery } from '../search/advanced.js';
-import { type SearchBackend, SearchQueryError, type SearchRequest, type SearchResult } from '../search/backend.js';
+import {
+  type SearchBackend,
+  type SearchExtra,
+  SearchQueryError,
+  type SearchRequest,
+  type SearchResult,
+} from '../search/backend.js';
 import { boundingBoxSchema, filterValueSchema, geoViolations, splitFilters } from '../search/requestFilters.js';
 import { applyTransformers, authoriseEntities } from '../transformers/default.js';
-import type { AccessFunction } from '../types/access.js';
+import type { AccessFunction, AccessInfo } from '../types/access.js';
 import type { EntityTransformer } from '../types/transformers.js';
 import type { EntityVisibilityFilter, SearchVisibilityFilter } from '../types/visibility.js';
 import { createError, createValidationError, ERROR_CODES } from '../utils/errors.js';
@@ -32,6 +38,17 @@ type SearchRouteOptions = {
   entityTransformers?: EntityTransformer[];
   entityVisibilityFilter: EntityVisibilityFilter;
   searchVisibilityFilter: SearchVisibilityFilter;
+};
+
+// Highlights quote the Record's text, so a hit denied either part keeps only its score
+const visibleExtra = (searchExtra: SearchExtra | undefined, { metadata, content }: AccessInfo) => {
+  if (!searchExtra || (metadata && content)) {
+    return searchExtra;
+  }
+
+  const { highlight: _, ...rest } = searchExtra;
+
+  return Object.keys(rest).length > 0 ? rest : undefined;
 };
 
 const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => {
@@ -105,7 +122,10 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
       try {
         result = await backend.search(searchRequest, context);
       } catch (error) {
-        await visibilityWhere;
+        await visibilityWhere.catch((visibilityError: unknown) => {
+          fastify.log.error({ err: error }, 'Search backend failed');
+          throw visibilityError;
+        });
         if (!(error instanceof SearchQueryError)) {
           throw error;
         }
@@ -136,8 +156,9 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
           }
 
           const transformed = await applyTransformers(authorisedEntity, entityTransformers, context);
+          const extra = visibleExtra(searchExtra, authorisedEntity.access);
 
-          return searchExtra === undefined ? transformed : { ...(transformed as object), searchExtra };
+          return extra === undefined ? transformed : { ...(transformed as object), searchExtra: extra };
         }),
       ).then((results) => results.filter((entity) => entity !== null));
 

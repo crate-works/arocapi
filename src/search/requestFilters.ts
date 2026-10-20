@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { BackendSearchCapability, BoundingBox, RangeBound, RangeFilter, SearchRequest } from './backend.js';
-import { parseDate } from './fields.js';
+import { dateSpan } from './fields.js';
 import type { VisibilityCondition } from './visibility.js';
 
 const boundSchema = z.union([z.string(), z.number()]);
@@ -21,28 +21,18 @@ type FilterType = BackendSearchCapability['filters'][string]['type'];
 type Violation = { field: string; message: string; value?: unknown };
 type Normalised = { range: RangeFilter } | { problem: string };
 
-const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const DATE_TIME = /^\d{4}-\d{2}-\d{2}[Tt ]/;
-const DAY_MS = 86_400_000;
+const FILTER_DATE = /^\d{4}-\d{2}-\d{2}(?:[Tt ]|$)/;
 const DATE_FORMS = 'a YYYY-MM-DD date or an RFC 3339 date-time';
 
-/** A calendar date covers its whole UTC day; a date-time is just that instant */
-const dateSpan = (value: string) => {
-  const calendarDate = CALENDAR_DATE.test(value);
-  const first = calendarDate || DATE_TIME.test(value) ? parseDate(value) : undefined;
-  if (!first) {
-    return undefined;
-  }
-
-  return { first, last: calendarDate ? new Date(first.getTime() + DAY_MS - 1) : first };
-};
+/** Filters take a calendar date, covering its whole UTC day, or a date-time */
+const filterDateSpan = (value: string) => (FILTER_DATE.test(value) ? dateSpan(value) : undefined);
 
 const toBound = (type: 'date' | 'number', side: 'gte' | 'lte', value: string | number): RangeBound | undefined => {
   if (type === 'number') {
     return typeof value === 'number' ? value : undefined;
   }
 
-  const span = typeof value === 'string' ? dateSpan(value) : undefined;
+  const span = typeof value === 'string' ? filterDateSpan(value) : undefined;
 
   return span && (side === 'gte' ? span.first : span.last);
 };
@@ -79,7 +69,7 @@ const exactRange = (type: 'date' | 'number', value: string): Normalised => {
       : { problem: `values must be numbers, not ${JSON.stringify(value)}` };
   }
 
-  const span = dateSpan(value);
+  const span = filterDateSpan(value);
 
   return span
     ? { range: { gte: span.first, lte: span.last } }
@@ -117,7 +107,16 @@ export const splitFilters = (declared: BackendSearchCapability['filters'], filte
 
     const { type } = declared[key];
     if ((type === 'string' || type === 'boolean') && isExact(value)) {
-      split.terms[key] = value;
+      const notBoolean = type === 'boolean' ? value.find((item) => item !== 'true' && item !== 'false') : undefined;
+      if (notBoolean === undefined) {
+        split.terms[key] = value;
+      } else {
+        violations.push({
+          field: `/filters/${key}`,
+          message: `${key} values must be true or false, not ${JSON.stringify(notBoolean)}`,
+          value,
+        });
+      }
       continue;
     }
 

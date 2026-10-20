@@ -69,8 +69,9 @@ type AdvancedQuery =
   | { type: 'all' }; // an empty query
 ```
 
-A `match` on a `text` field matches all the words of `value`, or the exact phrase if `phrase`; on any other type it
-matches `value` exactly.
+A `match` on a `text` field matches all the words of `value`, or the exact phrase if `phrase`; on a `date` field it
+matches the whole period `value` names (a year, month, day or instant, in UTC); on any other type it matches `value`
+exactly. A `value` the field can't hold is a `SearchQueryError`.
 
 `context` is the request context, `{ request, fastify }`.
 
@@ -93,7 +94,8 @@ UTC year with matches, named `"YYYY"` and ordered by year. `geohashGrid` counts 
 `geohashPrecision`. arocapi then:
 
 - loads each hit's Record from the database under `entityVisibilityFilter`, dropping (and logging) any it can't load;
-- attaches `access`, runs the entity transformers and passes `searchExtra` through unchanged;
+- attaches `access`, runs the entity transformers and passes `searchExtra` through, dropping `highlight` from a hit
+  whose Metadata or Content access is denied, since highlights quote the Record's text;
 - fills in an empty list for any declared facet the backend left out;
 - reports the time spent in `search` as `searchTime`.
 

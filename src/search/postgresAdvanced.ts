@@ -1,30 +1,28 @@
 import { join, type Sql, sqltag as sql } from '@prisma/client/runtime/client';
+import { matchedDateSpan } from './advanced.js';
 import { type AdvancedQuery, SearchQueryError } from './backend.js';
-import { type FieldDeclarations, parseDate } from './fields.js';
+import type { FieldDeclarations, FieldType } from './fields.js';
 import { fieldValue, parameter, TEXT_SEARCH_CONFIG, valuesOf } from './postgresValues.js';
 
 // A tsquery's lexemes as text: single-quoted, with quotes doubled
 const LEXEME = "'((?:[^']|'')*)'";
 
 const exactValue = (field: string, type: string, value: string) => {
-  switch (type) {
-    case 'boolean':
-      if (value !== 'true' && value !== 'false') {
-        throw new SearchQueryError(`"${field}" is a boolean field: "${value}" isn't true or false`);
-      }
-
-      return value === 'true';
-    case 'date': {
-      const date = parseDate(value);
-      if (!date) {
-        throw new SearchQueryError(`"${field}" is a date field: "${value}" isn't a date`);
-      }
-
-      return date;
-    }
-    default:
-      return value;
+  if (type === 'boolean' && value !== 'true' && value !== 'false') {
+    throw new SearchQueryError(`"${field}" is a boolean field: "${value}" isn't true or false`);
   }
+
+  return type === 'boolean' ? value === 'true' : value;
+};
+
+const exactCondition = (field: string, type: FieldType, value: string) => {
+  if (type === 'date') {
+    const { first, last } = matchedDateSpan(field, value);
+
+    return sql`${fieldValue(type)} BETWEEN ${parameter(type, first)} AND ${parameter(type, last)}`;
+  }
+
+  return sql`${fieldValue(type)} = ${parameter(type, exactValue(field, type, value))}`;
 };
 
 /**
@@ -64,9 +62,7 @@ export const advancedQueryFor = (query: AdvancedQuery, fields: FieldDeclarations
           return sql`search.text @@ ${matching}`;
         }
 
-        return sql`EXISTS (
-          SELECT FROM ${valuesOf(field)} WHERE ${fieldValue(type)} = ${parameter(type, exactValue(field, type, value))}
-        )`;
+        return sql`EXISTS (SELECT FROM ${valuesOf(field)} WHERE ${exactCondition(field, type, value)})`;
       }
       default:
         return sql`TRUE`;

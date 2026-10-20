@@ -38,7 +38,7 @@ do:
 - **Filters** match exact values, or ranges on `date` and `number` fields: any value within a field, every field. A
   `text` field is filtered on its exact value, not its words.
 - **Highlights** of the matched words in basic and advanced fields arrive in each hit's `searchExtra` on
-  `OpenSearchBackend`.
+  `OpenSearchBackend`, except on a hit whose Metadata or Content access is denied.
 - **Facets** are counted for every declared facet, named by the value and ordered by count, then name; a `date` facet
   has one bucket per UTC year, named `YYYY` and ordered by year. Every declared facet is in every response, empty when
   nothing matches.

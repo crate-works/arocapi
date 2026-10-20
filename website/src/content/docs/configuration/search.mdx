@@ -83,12 +83,15 @@ To rebuild an index, loop `index` over your entities.
 mapping, and throws, naming the field, if it exists with another, so a changed declaration never mis-indexes silently.
 Delete the index and index your entities again to apply a change. `index` doesn't check that the entities exist.
 
-A basic query is a fuzzy `multi_match` over the basic fields, boosted by weight; an empty query matches every visible
-entity. Totals are exact, and an empty query keeps the same order across pages. Each hit's `searchExtra` has its score
-and the highlighted matches in its basic and advanced fields. A query OpenSearch rejects is a 422.
+A basic query is a fuzzy `multi_match` over the basic fields, boosted by weight; an empty query, or one with no words
+left once analysed (such as `*`), matches every visible entity. Totals are exact, and an empty query keeps the same
+order across pages. Each hit's `searchExtra` has its score and the highlighted matches in its basic and advanced fields;
+arocapi drops the highlights from a hit whose Metadata or Content access is denied, as they quote its text. A query
+OpenSearch rejects is a 422.
 
 In an advanced query, a `text` value matches all its words (`match` with `operator: and`) or the exact phrase
-(`match_phrase`), any other type matches exactly, and `NOT` is `must_not`.
+(`match_phrase`), a `date` matches the [whole period it names](/reference/search-queries/#values), any other type
+matches exactly, and `NOT` is `must_not`.
 
 ## `PostgresBackend`
 
@@ -108,7 +111,8 @@ entity deletes its search document.
 <Code code={searchPostgres} lang="ts" />
 
 A basic query is a Postgres web search (`websearch_to_tsquery`) over the basic fields, with words matched whole rather
-than with typos; quotes, `or` and `-` work as they do on search engines. An empty query matches every visible entity.
+than with typos; quotes, `or` and `-` work as they do on search engines. An empty query, or one with no words (such as
+`*`), matches every visible entity.
 Relevance is `ts_rank`, weighted by `weight` and tie-broken by id. Filters, facets, sorts, totals and the search
 visibility filter behave exactly as on `OpenSearchBackend`, and strings sort in code point order, as OpenSearch sorts
 them. `searchExtra` is empty.
@@ -117,8 +121,8 @@ Geo filters on Postgres's built-in `point` type with a GiST index, and counts th
 entity's stored geohash, so it needs no PostGIS.
 
 An [advanced query](/reference/search-queries/) runs over the same `simple` words: `field: words` needs every word
-in that field, a quoted phrase needs them in order (`phraseto_tsquery`), and other types match the value exactly, a
-`date` as its first UTC instant. Relevance is `ts_rank` over the query's text matches outside `NOT`, so entities
+in that field, a quoted phrase needs them in order (`phraseto_tsquery`), a `date` matches the
+[whole period it names](/reference/search-queries/#values), and other types match the value exactly. Relevance is `ts_rank` over the query's text matches outside `NOT`, so entities
 matching more of the query come first, tie-broken by id, the same order on every page. A value a field can't hold,
 or a query past a Postgres limit such as `max_stack_depth`, is a 422.
 
@@ -140,7 +144,8 @@ calendar date covers its whole UTC day, so the year range above matches an entit
 exact numbers are numeric strings.
 
 A partial date (`2001`, `2001-12`) as a bound or exact value, a bound of the wrong type, `gte` above `lte`, a range
-mixed with exact values, and any range on a `string` or `boolean` filter are a 400 `VALIDATION_ERROR` naming the filter.
+mixed with exact values, any range on a `string` or `boolean` filter, and a `boolean` filter value other than `"true"`
+or `"false"` are a 400 `VALIDATION_ERROR` naming the filter.
 
 A `date` facet has one bucket per UTC year with matches, named `"YYYY"` and ordered by year, so an entity dated
 `2001-12-31T23:30:00-01:00` counts under `"2002"`.

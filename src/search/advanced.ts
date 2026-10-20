@@ -1,4 +1,5 @@
-import type { AdvancedQuery, SearchQuery } from './backend.js';
+import { type AdvancedQuery, type SearchQuery, SearchQueryError } from './backend.js';
+import { dateSpan } from './fields.js';
 
 /** In code points, for basic and advanced queries */
 const MAX_QUERY_LENGTH = 1024;
@@ -242,4 +243,16 @@ export const normaliseQuery = (
     // Only InvalidQueryError is thrown: the parser is pure and its recursion is bounded by the length cap
     return { problem: (error as InvalidQueryError).message };
   }
+};
+
+/**
+ * The UTC instants an advanced match on a date field covers, throwing a SearchQueryError for a value that isn't a date
+ */
+export const matchedDateSpan = (field: string, value: string) => {
+  const span = dateSpan(value);
+  if (!span) {
+    throw new SearchQueryError(`"${field}" is a date field: "${value}" isn't a date`);
+  }
+
+  return span;
 };

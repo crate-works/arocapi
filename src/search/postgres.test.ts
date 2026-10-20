@@ -1,3 +1,4 @@
+import type { Sql } from '@prisma/client/runtime/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { isolatedPrisma } from '../test/helpers/postgresSchema.js';
@@ -117,6 +118,37 @@ describe('PostgresBackend', () => {
       'Search documents reference entities that don\'t exist: "http://example.com/missing-a", "http://example.com/missing-b"',
     );
     expect(await read('http://example.com/1')).toBeUndefined();
+  });
+
+  describe('when an entity is deleted between the check and the write', () => {
+    const foreignKeyViolation = Object.assign(new Error('violates foreign key constraint'), {
+      meta: { driverAdapterError: { cause: { originalCode: '23503' } } },
+    });
+    const racing = () => {
+      let calls = 0;
+
+      return {
+        $queryRaw: <T>(query: Sql) =>
+          calls++ === 0 ? Promise.reject(foreignKeyViolation) : prisma.$queryRaw<T>(query),
+        $executeRaw: (query: Sql) => prisma.$executeRaw(query),
+      };
+    };
+
+    it('throws naming the entities that no longer exist', async () => {
+      const backend = PostgresBackend({ prisma: racing(), fields });
+
+      const indexing = backend.index([{ id: 'http://example.com/1' }, { id: 'http://example.com/gone' }]);
+
+      await expect(indexing).rejects.toThrow(
+        'Search documents reference entities that don\'t exist: "http://example.com/gone"',
+      );
+    });
+
+    it('rethrows the violation when every entity exists again', async () => {
+      const backend = PostgresBackend({ prisma: racing(), fields });
+
+      await expect(backend.index([{ id: 'http://example.com/1' }])).rejects.toBe(foreignKeyViolation);
+    });
   });
 
   it('removes the search document when its entity is deleted', async () => {

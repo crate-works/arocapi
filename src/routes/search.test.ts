@@ -5,6 +5,7 @@ import { SearchQueryError } from '../search/backend.js';
 import { fakeSearchBackend } from '../test/helpers/fakeSearchBackend.js';
 import { fastify, fastifyAfter, fastifyBefore, prisma } from '../test/helpers/fastify.js';
 import type { AuthorisedEntity } from '../transformers/default.js';
+import type { AccessFunction } from '../types/access.js';
 import type { EntityTransformer } from '../types/transformers.js';
 import type { SearchVisibilityFilter } from '../types/visibility.js';
 import { AllPublicAccess } from '../utils/access.js';
@@ -47,6 +48,7 @@ type Setup = {
   entityTransformers?: EntityTransformer[];
   searchVisibilityFilter?: SearchVisibilityFilter;
   entityVisibilityFilter?: () => object;
+  access?: AccessFunction;
 };
 
 const setup = async ({
@@ -56,6 +58,7 @@ const setup = async ({
   searchVisibilityFilter,
   entityVisibilityFilter,
   extraCapabilities,
+  access,
 }: Setup = {}) => {
   const fake = fakeSearchBackend(
     { ...capabilities, ...(searchTypes && { searchTypes }), ...extraCapabilities },
@@ -66,7 +69,7 @@ const setup = async ({
   await fastify.register(searchRoute, {
     prisma,
     search: fake.backend,
-    access: AllPublicAccess,
+    access: access ?? AllPublicAccess,
     entityTransformers,
     entityVisibilityFilter: entityVisibilityFilter ?? AllVisibleEntityFilter,
     searchVisibilityFilter: searchVisibilityFilter ?? AllVisibleSearchFilter,
@@ -243,6 +246,24 @@ describe('Search Route', () => {
 
       expect(response.statusCode).toBe(500);
     });
+
+    it('logs the backend error when the entity visibility filter fails too', async () => {
+      const backendError = new Error('Connection refused');
+      await setup({
+        entityVisibilityFilter: async () => {
+          throw new Error('Session store down');
+        },
+        respond: () => {
+          throw backendError;
+        },
+      });
+      const logError = vi.spyOn(fastify.log, 'error');
+
+      const response = await search({ query: 'test' });
+
+      expect(response.statusCode).toBe(500);
+      expect(logError).toHaveBeenCalledWith({ err: backendError }, expect.any(String));
+    });
   });
 
   describe('the response', () => {
@@ -279,6 +300,40 @@ describe('Search Route', () => {
         expect.not.objectContaining({ searchExtra: expect.anything() }),
       ]);
       expect(body.entities[1].id).toBe(entity(1).id);
+    });
+
+    it.each([
+      ['Metadata', { metadata: false, content: true }],
+      ['Content', { metadata: true, content: false }],
+    ])('drops highlights from a hit whose %s access is denied, keeping its score', async (_part, denied) => {
+      const highlight = { name: ['<em>Entity</em>'] };
+      await setup({
+        access: (e) => (e.id === entity(2).id ? denied : { metadata: true, content: true }),
+        respond: () => ({
+          total: 2,
+          hits: [
+            { id: entity(1).id, searchExtra: { score: 2, highlight } },
+            { id: entity(2).id, searchExtra: { score: 1, highlight } },
+          ],
+        }),
+      });
+      prisma.entity.findMany.mockResolvedValueOnce([entity(1), entity(2)]);
+
+      const body = (await search({ query: 'entity' })).json<SearchBody>();
+
+      expect(body.entities.map(({ searchExtra }) => searchExtra)).toEqual([{ score: 2, highlight }, { score: 1 }]);
+    });
+
+    it('drops searchExtra from a denied hit when it held only highlights', async () => {
+      await setup({
+        access: () => ({ metadata: false, content: false }),
+        respond: () => ({ total: 1, hits: [{ id: entity(1).id, searchExtra: { highlight: { name: ['x'] } } }] }),
+      });
+      prisma.entity.findMany.mockResolvedValueOnce([entity(1)]);
+
+      const body = (await search({ query: 'entity' })).json<SearchBody>();
+
+      expect(body.entities[0]).not.toHaveProperty('searchExtra');
     });
 
     it('loads hits under the entity visibility filter', async () => {
@@ -450,6 +505,7 @@ describe('Search Route', () => {
       ],
       ['a partial exact date', { datePublished: ['2001'] }, 'datePublished'],
       ['a non-numeric exact number', { pages: ['many'] }, 'pages'],
+      ['a boolean value other than true or false', { open: ['true', 'yes'] }, 'open'],
     ])('rejects %s with a 400 naming the filter', async (_problem, filters, key) => {
       const { requests } = await setup({ extraCapabilities });
 

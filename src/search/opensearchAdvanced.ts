@@ -1,4 +1,5 @@
 import type { QueryContainer } from '@opensearch-project/opensearch/api/_types/_common.query_dsl.js';
+import { matchedDateSpan } from './advanced.js';
 import type { AdvancedQuery } from './backend.js';
 import type { FieldDeclarations } from './fields.js';
 
@@ -17,7 +18,13 @@ export const advancedQueryFor = (query: AdvancedQuery, fields: FieldDeclarations
       return { bool: { must_not: [advancedQueryFor(query.clause, fields)] } };
     case 'match': {
       const { field, value, phrase } = query;
-      if (fields[field].type !== 'text') {
+      const { type } = fields[field];
+      if (type === 'date') {
+        const { first, last } = matchedDateSpan(field, value);
+
+        return { range: { [field]: { gte: first.toISOString(), lte: last.toISOString() } } };
+      }
+      if (type !== 'text') {
         return { term: { [field]: value } };
       }
 

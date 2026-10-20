@@ -174,6 +174,22 @@ describe('OpenSearchBackend', () => {
       await expect(search).rejects.toBeInstanceOf(SearchQueryError);
     });
 
+    it('throws a SearchQueryError for an advanced query over the clause limit', async () => {
+      const backend = OpenSearchBackend({ client, fields: { code: { type: 'keyword', advanced: true } }, indexName });
+      await backend.createIndex();
+      const clauses = Array.from({ length: 5000 }, (_, n) => ({
+        type: 'match' as const,
+        field: 'code',
+        value: `c${n}`,
+        phrase: false,
+      }));
+
+      const search = backend.search(request({ searchType: 'advanced', query: { type: 'or', clauses } }));
+
+      await expect(search).rejects.toBeInstanceOf(SearchQueryError);
+      await expect(search).rejects.toThrow(/clause/i);
+    });
+
     it('rethrows any other OpenSearch error', async () => {
       const search = OpenSearchBackend({ client, fields, indexName }).search(request());
 

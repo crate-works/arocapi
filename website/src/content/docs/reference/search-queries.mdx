@@ -31,8 +31,8 @@ inLanguage: eng AND (name: "red kangaroo" OR description: (wombat OR echidna)) A
 
 | Form             | Example                       | Matches                                                         |
 | ---------------- | ----------------------------- | --------------------------------------------------------------- |
-| `field: value`   | `name: red kangaroo`          | A `text` field containing all the words, in any order. Any other type matches the value exactly. |
-| `field: "phrase"`| `name: "red kangaroo"`        | A `text` field containing the exact phrase. Any other type matches the value exactly. |
+| `field: value`   | `name: red kangaroo`          | A `text` field containing all the words, in any order. Any other type matches the [value](#values). |
+| `field: "phrase"`| `name: "red kangaroo"`        | A `text` field containing the exact phrase. Any other type matches the [value](#values). |
 | `AND`            | `name: a AND inLanguage: eng` | Both sides.                                                     |
 | `OR`             | `name: a OR name: b`          | Either side.                                                    |
 | `NOT`            | `NOT name: draft`             | Everything the clause doesn't match. Unary only: write `a AND NOT b`. |
@@ -48,6 +48,13 @@ inLanguage: eng AND (name: "red kangaroo" OR description: (wombat OR echidna)) A
 - There's no escaping: `\`, `*`, `?`, `~`, `/`, `[`, `]`, `{`, `}` and `^` are ordinary characters, so wildcards,
   fuzziness, regexes, ranges and boosts aren't supported. Quote a value containing `:`, `(` or `)`. A phrase can't
   contain `"`.
+
+## Values
+
+A `text` value matches words, a `keyword` its exact value, a `number` its numeric value and a `boolean` `true` or
+`false`. A `date` value matches anything in the period it names, in UTC: `created: 2001` matches the whole year,
+`created: 2001-06` the month, `created: 2001-06-15` the day, and a quoted date-time such as
+`created: "2001-06-15T10:00:00+10:00"` that instant alone. A value the field can't hold is a 422.
 
 ## Caps
 

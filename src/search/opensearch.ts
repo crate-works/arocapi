@@ -100,7 +100,15 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
       return { match_none: {} };
     }
 
-    return { multi_match: { query: request.query, fields: basicFields, type: 'best_fields', fuzziness: 'AUTO' } };
+    return {
+      multi_match: {
+        query: request.query,
+        fields: basicFields,
+        type: 'best_fields',
+        fuzziness: 'AUTO',
+        zero_terms_query: 'all',
+      },
+    };
   };
 
   const sortFor = ({ sort, order }: SearchRequest): Search_RequestBody['sort'] => [

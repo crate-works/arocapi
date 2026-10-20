@@ -184,7 +184,7 @@ type StoredSearchDocument = { id: string; values: Record<string, Scalar | Scalar
 
 const DATE = /^(\d{4})(?:-(\d{2})(?:-(\d{2})(?:[Tt ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?([Zz]|[+-]\d{2}:\d{2})?)?)?)?$/;
 
-export const parseDate = (value: string) => {
+const parseDate = (value: string) => {
   const match = DATE.exec(value);
   if (!match) {
     return undefined;
@@ -220,6 +220,32 @@ export const parseDate = (value: string) => {
   }
 
   return date;
+};
+
+/**
+ * The UTC instants a date covers, as a match value: a year, month or day is the whole period, a date-time its instant
+ */
+export const dateSpan = (value: string) => {
+  const first = parseDate(value);
+  if (!first) {
+    return undefined;
+  }
+
+  const [, , month, day, hour] = DATE.exec(value) as RegExpExecArray;
+  if (hour !== undefined) {
+    return { first, last: first };
+  }
+
+  const next = new Date(first);
+  if (day !== undefined) {
+    next.setUTCDate(next.getUTCDate() + 1);
+  } else if (month !== undefined) {
+    next.setUTCMonth(next.getUTCMonth() + 1);
+  } else {
+    next.setUTCFullYear(next.getUTCFullYear() + 1);
+  }
+
+  return { first, last: new Date(next.getTime() - 1) };
 };
 
 const isGeoPoint = (value: unknown): value is GeoPoint => {

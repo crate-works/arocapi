@@ -72,7 +72,11 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
     }
     const tsquery = sql`websearch_to_tsquery(${TEXT_SEARCH_CONFIG}, ${request.query}::text)`;
 
-    return { condition: sql`search.basic @@ ${tsquery}`, rank: sql`ts_rank(search.basic, ${tsquery})` };
+    // A query with no words left after parsing, such as `*`, matches everything
+    return {
+      condition: sql`(numnode(${tsquery}) = 0 OR search.basic @@ ${tsquery})`,
+      rank: sql`ts_rank(search.basic, ${tsquery})`,
+    };
   };
 
   return {
@@ -144,7 +148,8 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
         ...(point && { ...point, geohash: geohash(point) }),
       }));
 
-      const missing = await (tx ?? prisma).$queryRaw<{ id: string }[]>(sql`
+      const ids = rows.map(({ id }) => id);
+      const upsert = (tx ?? prisma).$queryRaw<{ id: string }[]>(sql`
         WITH docs AS (
           SELECT * FROM jsonb_to_recordset(${JSON.stringify(rows)}::jsonb)
             AS docs(id text, "values" jsonb, lat float8, lng float8, geohash text)
@@ -167,6 +172,25 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
         SELECT id FROM missing ORDER BY id
       `);
 
+      let missing: { id: string }[];
+      try {
+        missing = await upsert;
+      } catch (error) {
+        if (driverErrorOf(error)?.originalCode !== FOREIGN_KEY_VIOLATION) {
+          throw error;
+        }
+
+        // An entity was deleted after the check; `tx` is aborted, so look outside it
+        missing = await prisma.$queryRaw<{ id: string }[]>(sql`
+          SELECT doc.id FROM unnest(${ids}::text[]) AS doc(id)
+          WHERE NOT EXISTS (SELECT FROM entity WHERE entity.id = doc.id)
+          ORDER BY doc.id
+        `);
+        if (missing.length === 0) {
+          throw error;
+        }
+      }
+
       if (missing.length > 0) {
         throw new Error(
           `Search documents reference entities that don't exist: ${missing.map(({ id }) => JSON.stringify(id)).join(', ')}`,
@@ -187,6 +211,10 @@ type DriverAdapterError = {
   meta?: { driverAdapterError?: { cause?: { originalCode?: string; originalMessage?: string } } };
 };
 
+const driverErrorOf = (error: unknown) => (error as DriverAdapterError).meta?.driverAdapterError?.cause;
+
+const FOREIGN_KEY_VIOLATION = '23503';
+
 // Data exceptions (22) come from query values a field can't hold; program limits (54) from queries too big to run
 const QUERY_ERROR_CLASSES = ['22', '54'];
 
@@ -194,7 +222,7 @@ const asQueryErrors = async <T>(query: PromiseLike<T>) => {
   try {
     return await query;
   } catch (error) {
-    const cause = (error as DriverAdapterError).meta?.driverAdapterError?.cause;
+    const cause = driverErrorOf(error);
     if (cause && QUERY_ERROR_CLASSES.some((errorClass) => cause.originalCode?.startsWith(errorClass))) {
       throw new SearchQueryError(cause.originalMessage);
     }

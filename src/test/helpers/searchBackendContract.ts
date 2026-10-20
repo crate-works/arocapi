@@ -118,6 +118,13 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
         expect(paged).toEqual(all);
       });
 
+      it.each(['*', '!!!'])('matches every entity for a query with no searchable words: %s', async (query) => {
+        const body = await search({ query });
+
+        expect(body.total).toBe(5);
+        expect(body.entities.map((entity) => entity.id).sort()).toEqual([id(1), id(2), id(3), id(4), id(5)]);
+      });
+
       it('finds a word in a basic text field', async () => {
         expect(await ids({ query: 'kangaroo' })).toContain(id(1));
       });
@@ -198,6 +205,7 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
         ['an undeclared filter key', { filters: { secret: ['zebra'] } }],
         ['an undeclared sort', { sort: 'description' }],
         ['an undeclared search type', { searchType: 'advanced' }],
+        ['a boolean filter value other than true or false', { filters: { open: ['yes'] } }],
       ])('rejects %s with a 400', async (_problem, payload) => {
         const response = await app.inject({ method: 'POST', url: '/search', payload: { query: '', ...payload } });
 
@@ -449,6 +457,32 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
         ]);
       });
 
+      const ors = (count: number) =>
+        ['name: wombat', ...Array.from({ length: count - 1 }, (_, n) => `name: w${n}`)].join(' OR ');
+
+      it.each([
+        ['1024 code points', `name: wombat OR name: ${'🦘'.repeat(1002)}`, [4]],
+        ['10 levels of nesting', `${'NOT '.repeat(10)}name: wombat`, [4]],
+        ['64 clauses', ors(64), [4]],
+      ])('runs a query at the cap of %s', async (_cap, query, expected) => {
+        expect(await advanced(query)).toEqual(expected.map(id));
+      });
+
+      it.each([
+        ['1024 code points', `name: wombat OR name: ${'🦘'.repeat(1003)}`],
+        ['10 levels of nesting', `${'NOT '.repeat(11)}name: wombat`],
+        ['64 clauses', ors(65)],
+      ])('rejects a query over the cap of %s with a 422', async (_cap, query) => {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/search',
+          payload: { searchType: 'advanced', query },
+        });
+
+        expect(response.statusCode).toBe(422);
+        expect(response.json<StandardErrorResponse>().error.code).toBe('VALIDATION_ERROR');
+      });
+
       it('ranks entities matching more of the query first, stable across pages', async () => {
         const query = 'name: kangaroo OR description: kangaroo';
         const all = await ids({ searchType: 'advanced', query });
@@ -584,6 +618,7 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
       const valueDocs: SearchDocument<typeof valueFields>[] = [
         { id: id(1), pages: 10, open: true, created: '2001' },
         { id: id(2), pages: 2.5, open: false, created: '2010-06-01T10:00:00+10:00' },
+        { id: id(3), created: '2001-06-15' },
       ];
 
       beforeEach(async () => {
@@ -592,10 +627,18 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
 
       it.each([
         ['a decimal number', 'pages: 2.5', [2]],
-        ['a partial date as its first UTC instant', 'created: 2001', [1]],
         ['a date with an offset as its UTC instant', 'created: "2010-06-01T00:00:00Z"', [2]],
       ])('matches %s exactly', async (_case, query, expected) => {
         expect(await ids({ searchType: 'advanced', query })).toEqual(expected.map(id));
+      });
+
+      it.each([
+        ['a year', 'created: 2001', [1, 3]],
+        ['a month', 'created: 2001-06', [3]],
+        ['a day', 'created: 2010-06-01', [2]],
+        ['a day with no match', 'created: 2001-06-14', []],
+      ])('matches a date in the whole of %s', async (_case, query, expected) => {
+        expect((await ids({ searchType: 'advanced', query })).sort()).toEqual(expected.map(id));
       });
 
       it.each([
