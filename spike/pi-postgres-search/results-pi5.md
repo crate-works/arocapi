@@ -1,6 +1,6 @@
 # Postgres search spike: Raspberry Pi 5 (4 GB, SD card)
 
-200k not run: 10k and 50k answered the question.
+200k finished after the ticket was resolved from 10k and 50k; it confirmed the projection.
 
 ```
 Raspberry Pi 5 Model B Rev 1.0
@@ -83,3 +83,35 @@ Load (generate + index + analyze): 633s
 | empty query + 2 filters: page 1 | 1548 | 33.6 | 33.6 |
 | empty query + 2 filters: facets | 1548 | 52.4 | 52.5 |
 | empty query: geohash grid in bbox | 668 | 12.9 | 13.1 |
+
+## 200000 entities
+
+Load (generate + index + analyze): 2563s
+
+- entity: 107 MB
+- search_entity: 220 MB
+- search_facet: 189 MB
+- search_facet rows: 1056958
+
+| Query | Matches | Median ms | Max ms |
+| --- | ---: | ---: | ---: |
+| common term: page 1 | 107557 | 679.0 | 694.9 |
+| common term: facets | 107557 | 348.1 | 349.3 |
+| common term: page at offset 5000 | 107557 | 715.9 | 720.6 |
+| common term: page 1 sorted by name | 107557 | 690.8 | 695.2 |
+| common term + 2 filters: page 1 | 6241 | 206.7 | 206.9 |
+| common term + 2 filters: facets | 6241 | 246.6 | 247.0 |
+| common term + date range: page 1 | 26364 | 179.2 | 180.1 |
+| common term: geohash grid in bbox | 2717 | 69.5 | 69.9 |
+| mid term: page 1 | 14383 | 107.7 | 110.0 |
+| mid term: facets | 14383 | 182.9 | 186.3 |
+| rare term: page 1 | 158 | 5.4 | 5.5 |
+| rare term: facets | 158 | 7.0 | 7.4 |
+| two terms (AND): page 1 | 11891 | 173.3 | 181.0 |
+| empty query: page 1 | 190196 | 331.2 | 347.7 |
+| empty query: facets | 190196 | 341.6 | 354.9 |
+| empty query: page at offset 5000 | 190196 | 319.8 | 331.8 |
+| empty query: page 1 sorted by name | 190196 | 364.6 | 377.2 |
+| empty query + 2 filters: page 1 | 6258 | 153.6 | 156.5 |
+| empty query + 2 filters: facets | 6258 | 205.5 | 208.1 |
+| empty query: geohash grid in bbox | 2727 | 61.1 | 61.2 |
