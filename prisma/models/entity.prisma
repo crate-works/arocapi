@@ -16,6 +16,7 @@ model Entity {
   updatedAt         DateTime @updatedAt
 
   file              File?
+  search            EntitySearch?
 
   @@index([memberOf])
   @@index([rootCollection])

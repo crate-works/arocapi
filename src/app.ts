@@ -30,6 +30,8 @@ export type {
 export { capabilitiesFromFields } from './search/fields.js';
 export type { OpenSearchBackendOptions } from './search/opensearch.js';
 export { OpenSearchBackend } from './search/opensearch.js';
+export type { PostgresBackendOptions, PostgresClient } from './search/postgres.js';
+export { PostgresBackend } from './search/postgres.js';
 export type {
   AuthorisedEntity,
   AuthorisedFile,
