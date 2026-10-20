@@ -23,7 +23,7 @@ Every push to `main` publishes a `beta` prerelease. Read `RELEASING.md` before m
 
 This is a Fastify plugin that registers routes for entities, files, search, and RO-Crate metadata. Consumers register it with required configuration: `prisma`, `search`, `entityVisibilityFilter`, `searchVisibilityFilter`, `access`, `fileHandler`, `roCrateHandler`.
 
-**Visibility**: Every query is filtered by the consumer's `entityVisibilityFilter` (Prisma) and `searchVisibilityFilter` (OpenSearch), so hidden entities never appear in results, totals or facets. Visibility guards the Record, runs before access, and is separate from it. See `docs/adr/0001-entity-visibility-filters.md`.
+**Visibility**: Every query is filtered by the consumer's `entityVisibilityFilter` (Prisma) and `searchVisibilityFilter` (a shared filter language every search backend applies), so hidden entities never appear in results, totals or facets. Visibility guards the Record, runs before access, and is separate from it. See `docs/adr/0001-entity-visibility-filters.md`.
 
 **Access**: The consumer's `access` function decides, per entity, whether a request may read its Metadata and Content. The library attaches the result to every entity/file response and enforces it on `/entity/:id/metadata` and `/file/:id` (Denied → 401 if anonymous per `isAuthenticated`, else 403) before calling `roCrateHandler`/`fileHandler`. A file's access is its file entity's access. See `docs/adr/0002-library-enforces-access.md`.
 

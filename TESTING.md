@@ -57,7 +57,9 @@ describe('createNotFoundError', () => {
 
 ### Integration Tests
 
-Test complete API workflows with real database and OpenSearch instances.
+Test complete API workflows with a real Postgres database and real search backends. The whole suite runs once with
+`OpenSearchBackend` and once with `PostgresBackend`, and the shared search contract
+(`src/test/helpers/searchBackendContract.ts`) holds both to the same `/search` behaviour.
 
 **Location**: `src/test/integration.test.ts`
 **Purpose**:
