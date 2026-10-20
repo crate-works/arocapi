@@ -1,0 +1,91 @@
+---
+title: Search queries
+description: Basic and advanced queries for POST /search, the advanced grammar, the caps and the 422s.
+sidebar:
+  order: 5
+---
+
+`POST /search` takes a `query` string and a `searchType`, `basic` (the default) or `advanced`. An empty or
+whitespace-only query matches every visible entity for either type; filters still apply.
+
+## Basic and advanced
+
+|                | Basic                                              | Advanced                                                      |
+| -------------- | -------------------------------------------------- | ------------------------------------------------------------- |
+| Fields         | every [`basic`](/configuration/search/#fields) field | only the fields named in the query, each declared `advanced`  |
+| Parsed by      | the search backend, its own way                    | arocapi, into a tree passed to the backend                    |
+| Available      | always                                             | when `/capabilities` lists `search.searchTypes.advanced`      |
+
+A basic query is passed to the backend as raw text and never parsed: only the length cap applies. OpenSearch runs it as
+a fuzzy `multi_match`.
+
+An advanced query is parsed by arocapi, so no raw query ever reaches an engine and only declared fields can be
+searched. `GET /capabilities` lists them under `search.searchTypes.advanced.fields`. With no `advanced` field declared,
+`searchType: advanced` is a 400.
+
+## Advanced grammar
+
+```text
+inLanguage: eng AND (name: "red kangaroo" OR description: (wombat OR echidna)) AND NOT name: draft
+```
+
+| Form             | Example                       | Matches                                                         |
+| ---------------- | ----------------------------- | --------------------------------------------------------------- |
+| `field: value`   | `name: red kangaroo`          | A `text` field containing all the words, in any order. Any other type matches the value exactly. |
+| `field: "phrase"`| `name: "red kangaroo"`        | A `text` field containing the exact phrase. Any other type matches the value exactly. |
+| `AND`            | `name: a AND inLanguage: eng` | Both sides.                                                     |
+| `OR`             | `name: a OR name: b`          | Either side.                                                    |
+| `NOT`            | `NOT name: draft`             | Everything the clause doesn't match. Unary only: write `a AND NOT b`. |
+| `( … )`          | `(name: a OR name: b) AND …`  | Groups clauses.                                                 |
+| Field group      | `name: (a OR "b c")`          | The same as `(name: a OR name: "b c")`. Takes `AND`, `OR`, `NOT` and brackets over values. |
+
+- An unquoted value runs to the next `AND`, `OR` or `NOT`, a `)` or the end of the query. So `name: x description: y`
+  is an error: join the clauses with an operator.
+- Precedence is `NOT`, then `AND`, then `OR`: `a OR b AND NOT c` is `a OR (b AND (NOT c))`.
+- Operators are uppercase only; `and`, `or` and `not` are ordinary words.
+- Whitespace around `:` doesn't matter.
+- Every clause names a field: there are no bare terms, and `field: *` matches a literal `*`.
+- There's no escaping: `\`, `*`, `?`, `~`, `/`, `[`, `]`, `{`, `}` and `^` are ordinary characters, so wildcards,
+  fuzziness, regexes, ranges and boosts aren't supported. Quote a value containing `:`, `(` or `)`. A phrase can't
+  contain `"`.
+
+## Caps
+
+Fixed limits, not configurable:
+
+| Limit         | Applies to       | Value                                                              |
+| ------------- | ---------------- | ------------------------------------------------------------------ |
+| Length        | basic, advanced  | 1024 characters, counted in Unicode code points                     |
+| Nesting depth | advanced         | 10 levels: each `AND`, `OR` or `NOT` level counts, redundant brackets don't |
+| Clauses       | advanced         | 64 `field: value` clauses, after field groups are expanded         |
+
+## Errors
+
+A query arocapi refuses is a 422 `VALIDATION_ERROR` before the backend is called. The message says what's wrong and
+`details.violations` repeats it on `query`:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Expected AND, OR or the end of the query at position 9, found \"description\"",
+    "details": {
+      "violations": [
+        { "field": "query", "message": "Expected AND, OR or the end of the query at position 9, found \"description\"" }
+      ]
+    }
+  }
+}
+```
+
+| Problem                 | Message                                                                  |
+| ----------------------- | ------------------------------------------------------------------------ |
+| Syntax error            | `Expected <what> at position <n>, found <what>`, with positions in code points from 1 |
+| Unclosed phrase         | `Expected a closing " for the phrase at position <n>, found the end of the query` |
+| Undeclared field        | `"<field>" at position <n> isn't a declared advanced field`             |
+| Too long                | `The query is longer than the limit of 1024 characters`                  |
+| Too deep                | `The query nests deeper than the limit of 10 levels`                     |
+| Too many clauses        | `The query has more than the limit of 64 clauses`                        |
+
+A query the backend's engine rejects, such as a value a `number` field can't hold or one past an engine limit, is also
+a 422 `VALIDATION_ERROR`, with the [backend's message](/reference/search-backend/#errors).

@@ -341,6 +341,103 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
       expect(response.json<StandardErrorResponse>().error.code).toBe('VALIDATION_ERROR');
     });
 
+    describe('advanced queries', () => {
+      const advancedFields = {
+        name: { type: 'text', advanced: true, label: 'Name' },
+        description: { type: 'text', advanced: true },
+        inLanguage: { type: 'keyword', advanced: true, filter: true },
+        pages: { type: 'number', advanced: true },
+        open: { type: 'boolean', advanced: true },
+        secret: { type: 'text' },
+      } satisfies FieldDeclarations;
+
+      const advancedDocs: SearchDocument<typeof advancedFields>[] = [
+        {
+          id: id(1),
+          name: 'red kangaroo',
+          description: 'A story of a kangaroo that was red',
+          inLanguage: ['eng', 'nys'],
+          pages: 10,
+          open: true,
+        },
+        {
+          id: id(2),
+          name: 'kangaroo red',
+          description: 'A red bird and a grey kangaroo',
+          inLanguage: 'eng',
+          pages: 5,
+          open: false,
+        },
+        { id: id(3), name: 'grey kangaroo', description: 'Nothing red here', inLanguage: 'fra', open: true },
+        { id: id(4), name: 'wombat', description: 'A wombat burrow', pages: 20, secret: 'kangaroo' },
+        { id: id(5), name: 'echidna', inLanguage: 'english', open: true },
+      ];
+
+      beforeEach(async () => {
+        await load(advancedFields, advancedDocs);
+      });
+
+      const advanced = async (query: string, filters?: object) => {
+        const body = await search({ searchType: 'advanced', query, ...(filters && { filters }) });
+
+        expect(body.total).toBe(body.entities.length);
+
+        return body.entities.map((entity) => entity.id).sort();
+      };
+
+      it('publishes the advanced fields in capabilities', async () => {
+        const response = await app.inject({ method: 'GET', url: '/capabilities' });
+
+        expect(response.json().search.searchTypes).toEqual({
+          basic: {},
+          advanced: { fields: { name: { label: 'Name' }, description: {}, inLanguage: {}, pages: {}, open: {} } },
+        });
+      });
+
+      it.each([
+        ['an empty query, matching everything', '', [1, 2, 3, 4, 5]],
+        ['a word', 'name: kangaroo', [1, 2, 3]],
+        ['all the words, in any order', 'name: red kangaroo', [1, 2]],
+        ['an exact phrase', 'name: "red kangaroo"', [1]],
+        ['a phrase within longer text', 'description: "red bird"', [2]],
+        ['a keyword exactly', 'inLanguage: eng', [1, 2]],
+        ['a keyword exactly, not its prefix', 'inLanguage: en', []],
+        ['a number exactly', 'pages: 10', [1]],
+        ['a boolean exactly', 'open: false', [2]],
+        ['AND', 'name: kangaroo AND inLanguage: eng', [1, 2]],
+        ['OR', 'name: wombat OR name: echidna', [4, 5]],
+        ['NOT alone', 'NOT name: kangaroo', [4, 5]],
+        ['AND NOT', 'name: kangaroo AND NOT description: grey', [1, 3]],
+        ['a field group', 'name: (wombat OR echidna)', [4, 5]],
+        ['a field group with NOT', 'name: (kangaroo AND NOT grey)', [1, 2]],
+        ['NOT before AND', 'NOT name: kangaroo AND description: wombat', [4]],
+        ['AND before OR', 'name: echidna OR name: kangaroo AND inLanguage: fra', [3, 5]],
+        ['brackets over precedence', '(name: echidna OR name: kangaroo) AND inLanguage: fra', [3]],
+      ])('matches %s', async (_case, query, expected) => {
+        expect(await advanced(query)).toEqual(expected.map(id));
+      });
+
+      it('applies filters to an advanced query', async () => {
+        expect(await advanced('name: kangaroo', { inLanguage: ['fra'] })).toEqual([id(3)]);
+      });
+
+      it.each([
+        ['an undeclared field', 'secret: kangaroo'],
+        ['a syntax error', 'name: (kangaroo'],
+      ])('rejects %s with a 422', async (_problem, query) => {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/search',
+          payload: { searchType: 'advanced', query },
+        });
+
+        expect(response.statusCode).toBe(422);
+        expect(response.json<StandardErrorResponse>().error.details?.violations).toEqual([
+          { field: 'query', message: expect.any(String) },
+        ]);
+      });
+    });
+
     it('gives an exact total above 10,000 hits', { timeout: 60_000 }, async () => {
       const many = Array.from({ length: 10_001 }, (_, n) => ({ id: id(n), name: 'many' }));
       await load({ name: { type: 'text' } }, many);

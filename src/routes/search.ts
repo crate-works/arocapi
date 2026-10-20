@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { PrismaClient } from '../generated/prisma/client.js';
+import { normaliseQuery } from '../search/advanced.js';
 import { type SearchBackend, SearchQueryError, type SearchRequest, type SearchResult } from '../search/backend.js';
 import { boundingBoxSchema, filterValueSchema, geoViolations, splitFilters } from '../search/requestFilters.js';
 import { applyTransformers, authoriseEntities } from '../transformers/default.js';
@@ -76,10 +77,11 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
 
       const { searchType, query, boundingBox, geohashPrecision, limit, offset, sort, order } = request.body;
 
-      if (searchType === 'advanced' && query.trim() !== '') {
-        const message = "Advanced queries aren't supported yet";
+      const searchQuery = normaliseQuery(searchType, query, capabilities.searchTypes.advanced?.fields ?? {});
+      if ('problem' in searchQuery) {
+        const { problem } = searchQuery;
 
-        return reply.code(422).send(createValidationError(message, [{ field: 'query', message }]));
+        return reply.code(422).send(createValidationError(problem, [{ field: 'query', message: problem }]));
       }
 
       const context = { request, fastify };
@@ -89,7 +91,7 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
       ]);
 
       const searchRequest: SearchRequest = {
-        ...(searchType === 'basic' ? { searchType, query } : { searchType, query: { type: 'all' } }),
+        ...searchQuery,
         filters,
         ...(boundingBox && { boundingBox }),
         ...(geohashPrecision !== undefined && { geohashPrecision }),

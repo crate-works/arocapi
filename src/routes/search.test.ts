@@ -176,18 +176,6 @@ describe('Search Route', () => {
         expect(response.statusCode).toBe(200);
         expect(requests[0]).toMatchObject({ searchType: 'advanced', query: { type: 'all' } });
       });
-
-      it('rejects any other advanced query with a 422 on query', async () => {
-        const { requests } = await setup({ searchTypes });
-
-        const response = await search({ searchType: 'advanced', query: 'name: test' });
-
-        expect(response.statusCode).toBe(422);
-        const { error } = response.json<StandardErrorResponse>();
-        expect(error.code).toBe('VALIDATION_ERROR');
-        expect(error.details?.violations).toEqual([expect.objectContaining({ field: 'query' })]);
-        expect(requests).toHaveLength(0);
-      });
     });
 
     it('accepts relevance as a sort', async () => {
@@ -524,6 +512,198 @@ describe('Search Route', () => {
 
       expect(response.statusCode).toBe(200);
       expect(requests[0].boundingBox).toEqual(boundingBox);
+    });
+  });
+
+  describe('advanced queries', () => {
+    const searchTypes = {
+      basic: {},
+      advanced: { fields: { name: {}, description: {}, inLanguage: {} } },
+    };
+
+    const treeFor = async (query: string) => {
+      const { requests } = await setup({ searchTypes });
+
+      const response = await search({ searchType: 'advanced', query });
+
+      expect(response.statusCode).toBe(200);
+      expect(requests).toHaveLength(1);
+
+      return requests[0].query;
+    };
+
+    const match = (field: string, value: string, phrase = false) => ({ type: 'match', field, value, phrase });
+
+    const and = (...clauses: object[]) => ({ type: 'and', clauses });
+    const or = (...clauses: object[]) => ({ type: 'or', clauses });
+    const not = (clause: object) => ({ type: 'not', clause });
+
+    it.each([
+      ['a field match', 'name: kangaroo', match('name', 'kangaroo')],
+      ['an unquoted value running to the end', 'name: red  kangaroo story', match('name', 'red kangaroo story')],
+      ['whitespace around the colon', 'name:kangaroo', match('name', 'kangaroo')],
+      ['whitespace before the colon', 'name : kangaroo', match('name', 'kangaroo')],
+      ['a quoted phrase', 'name: "red kangaroo"', match('name', 'red kangaroo', true)],
+      ['operators in a phrase', 'name: "cats AND dogs"', match('name', 'cats AND dogs', true)],
+      ['AND', 'name: a AND inLanguage: eng', and(match('name', 'a'), match('inLanguage', 'eng'))],
+      ['OR', 'name: a OR name: b', or(match('name', 'a'), match('name', 'b'))],
+      [
+        'an unquoted value running to the next operator',
+        'name: red fox OR name: b',
+        or(match('name', 'red fox'), match('name', 'b')),
+      ],
+      ['an unquoted value running to a bracket', '(name: red fox)', match('name', 'red fox')],
+      ['unary NOT', 'NOT name: a', not(match('name', 'a'))],
+      ['AND NOT', 'name: a AND NOT name: b', and(match('name', 'a'), not(match('name', 'b')))],
+      ['NOT binding tighter than AND', 'NOT name: a AND name: b', and(not(match('name', 'a')), match('name', 'b'))],
+      [
+        'AND binding tighter than OR',
+        'name: a OR name: b AND name: c',
+        or(match('name', 'a'), and(match('name', 'b'), match('name', 'c'))),
+      ],
+      [
+        'brackets',
+        '(name: a OR name: b) AND name: c',
+        and(or(match('name', 'a'), match('name', 'b')), match('name', 'c')),
+      ],
+      [
+        'a chain of one operator as one node',
+        'name: a OR (name: b OR name: c)',
+        or(match('name', 'a'), match('name', 'b'), match('name', 'c')),
+      ],
+      ['a field group', 'name: (a OR "b c")', or(match('name', 'a'), match('name', 'b c', true))],
+      [
+        'a field group with AND, NOT and brackets',
+        'name: (a AND NOT (b OR c d))',
+        and(match('name', 'a'), not(or(match('name', 'b'), match('name', 'c d')))),
+      ],
+      ['lowercase operators as words', 'name: cats and dogs or not', match('name', 'cats and dogs or not')],
+      [
+        'query syntax from other engines as ordinary characters',
+        'name: kang* ?o~2 /re/ [1 TO 2] a^3',
+        match('name', 'kang* ?o~2 /re/ [1 TO 2] a^3'),
+      ],
+      ['a backslash as an ordinary character', 'name: a\\b', match('name', 'a\\b')],
+    ])('parses %s', async (_case, query, tree) => {
+      expect(await treeFor(query)).toEqual(tree);
+    });
+
+    it('passes an empty query as one matching everything', async () => {
+      expect(await treeFor('  ')).toEqual({ type: 'all' });
+    });
+
+    const rejection = async (payload: object) => {
+      const { requests } = await setup({ searchTypes });
+
+      const response = await search(payload);
+
+      expect(response.statusCode).toBe(422);
+      expect(requests).toHaveLength(0);
+      const { error } = response.json<StandardErrorResponse>();
+      expect(error.code).toBe('VALIDATION_ERROR');
+      expect(error.details?.violations).toEqual([{ field: 'query', message: error.message }]);
+
+      return error.message;
+    };
+
+    it.each([
+      [
+        'a bare term',
+        'kangaroo',
+        'Expected ":" after the field name "kangaroo" at position 9, found the end of the query',
+      ],
+      [
+        'a second field in an unquoted value',
+        'name: x description: y',
+        'Expected AND, OR or the end of the query at position 9, found "description"',
+      ],
+      ['a missing value', 'name:', 'Expected a value for "name" at position 6, found the end of the query'],
+      [
+        'a field in a field group',
+        'name: (a OR description: b)',
+        'Expected a value for "name" at position 13, found "description"',
+      ],
+      ['a missing operand', 'name: a AND', 'Expected a field name at position 12, found the end of the query'],
+      ['a doubled operator', 'name: a OR OR name: b', 'Expected a field name at position 12, found OR'],
+      ['a binary NOT', 'name: a NOT name: b', 'Expected AND, OR or the end of the query at position 9, found NOT'],
+      ['an unclosed bracket', '(name: a', 'Expected AND, OR or ")" at position 9, found the end of the query'],
+      ['an unopened bracket', 'name: a)', 'Expected AND, OR or the end of the query at position 8, found ")"'],
+      ['an empty bracket', '()', 'Expected a field name at position 2, found ")"'],
+      [
+        'a phrase where a field belongs',
+        '"kangaroo"',
+        'Expected a field name at position 1, found the phrase "kangaroo"',
+      ],
+      ['a stray colon', ': a', 'Expected a field name at position 1, found ":"'],
+      [
+        'an unclosed phrase',
+        'name: "red kangaroo',
+        'Expected a closing " for the phrase at position 7, found the end of the query',
+      ],
+      [
+        'a position counted in code points',
+        'name: "🦘" )',
+        'Expected AND, OR or the end of the query at position 11, found ")"',
+      ],
+    ])('rejects %s as a syntax error with a 422', async (_case, query, message) => {
+      expect(await rejection({ searchType: 'advanced', query })).toBe(message);
+    });
+
+    it.each([
+      ['alone', 'secret: zebra', '"secret" at position 1 isn\'t a declared advanced field'],
+      ['after a declared one', 'name: a OR secret: zebra', '"secret" at position 12 isn\'t a declared advanced field'],
+      ['in another case', 'Name: a', '"Name" at position 1 isn\'t a declared advanced field'],
+    ])('rejects an undeclared field %s with a 422 naming it', async (_case, query, message) => {
+      expect(await rejection({ searchType: 'advanced', query })).toBe(message);
+    });
+
+    const nest = (depth: number): string =>
+      depth === 0 ? 'name: b' : `name: a ${depth % 2 ? 'AND' : 'OR'} (${nest(depth - 1)})`;
+    const ors = (count: number) => Array.from({ length: count }, (_, n) => `name: w${n}`).join(' OR ');
+
+    it.each([
+      ['basic', 'a'.repeat(1025)],
+      ['advanced', `name: ${'a'.repeat(1019)}`],
+    ])('rejects a %s query over 1024 characters with a 422', async (searchType, query) => {
+      expect(await rejection({ searchType, query })).toBe('The query is longer than the limit of 1024 characters');
+    });
+
+    it.each([
+      ['a basic query of 1024 characters', { query: 'a'.repeat(1024) }],
+      ['a query of 1024 code points', { query: '🦘'.repeat(1024) }],
+      ['an advanced query of 1024 characters', { searchType: 'advanced', query: `name: ${'a'.repeat(1018)}` }],
+      ['10 levels of nesting by NOTs', { searchType: 'advanced', query: `${'NOT '.repeat(10)}name: a` }],
+      ['10 levels of nesting by brackets', { searchType: 'advanced', query: nest(10) }],
+      ['redundant brackets', { searchType: 'advanced', query: `${'('.repeat(20)}name: a${')'.repeat(20)}` }],
+      ['64 clauses', { searchType: 'advanced', query: ors(64) }],
+    ])('accepts %s', async (_case, payload) => {
+      const { requests } = await setup({ searchTypes });
+
+      const response = await search(payload);
+
+      expect(response.statusCode).toBe(200);
+      expect(requests).toHaveLength(1);
+    });
+
+    it.each([
+      ['NOTs', `${'NOT '.repeat(11)}name: a`],
+      ['brackets', nest(11)],
+    ])('rejects more than 10 levels of nesting by %s with a 422', async (_case, query) => {
+      expect(await rejection({ searchType: 'advanced', query })).toBe(
+        'The query nests deeper than the limit of 10 levels',
+      );
+    });
+
+    it.each([
+      ['field matches', ors(65)],
+      [
+        'values in field groups',
+        `name: (${Array.from({ length: 33 }, (_, n) => `w${n}`).join(' OR ')}) AND description: (${Array.from({ length: 32 }, (_, n) => `w${n}`).join(' OR ')})`,
+      ],
+    ])('rejects more than 64 %s with a 422', async (_case, query) => {
+      expect(await rejection({ searchType: 'advanced', query })).toBe(
+        'The query has more than the limit of 64 clauses',
+      );
     });
   });
 });

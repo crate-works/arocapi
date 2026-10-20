@@ -31,6 +31,7 @@ documents you index.
 | `label`  | string                     | none                        | Published wherever the field is, for clients to show.      |
 | `weight` | integer, 1 to 4            | `1`                         | `text` only: how much a basic-search match in it counts.   |
 | `basic`  | boolean                    | `true` for `text`, otherwise `false` | Searched by a basic query. `text` and `keyword` only. |
+| `advanced` | boolean                  | `false`                     | Searchable by name in an [advanced query](/reference/search-queries/). Not on `geo`. |
 | `filter` | boolean                    | `false`                     | Usable as a key in the request's `filters`.                |
 | `facet`  | `true` or `{ size }`       | `false`                     | Counted in the response's `facets`; implies `filter`. `size` defaults to 20. Not on `number`. |
 | `sort`   | boolean                    | `false`                     | Usable as the request's `sort`. Takes a single value.       |
@@ -83,6 +84,9 @@ Delete the index and index your entities again to apply a change. `index` doesn'
 A basic query is a fuzzy `multi_match` over the basic fields, boosted by weight; an empty query matches every visible
 entity. Totals are exact, and an empty query keeps the same order across pages. Each hit's `searchExtra` has its score
 and the highlighted matches in its basic and advanced fields. A query OpenSearch rejects is a 422.
+
+In an advanced query, a `text` value matches all its words (`match` with `operator: and`) or the exact phrase
+(`match_phrase`), any other type matches exactly, and `NOT` is `must_not`.
 
 ## Dates
 

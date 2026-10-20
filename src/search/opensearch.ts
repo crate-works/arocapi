@@ -19,6 +19,7 @@ import {
   type SearchDocument,
   storeDocuments,
 } from './fields.js';
+import { advancedQueryFor } from './opensearchAdvanced.js';
 
 export type OpenSearchBackendOptions<Fields extends FieldDeclarations> = {
   client: Client;
@@ -95,7 +96,10 @@ export const OpenSearchBackend = <const Fields extends FieldDeclarations>({
   };
 
   const queryFor = (request: SearchRequest): QueryContainer => {
-    if (request.searchType === 'advanced' || request.query.trim() === '') {
+    if (request.searchType === 'advanced') {
+      return advancedQueryFor(request.query, fields);
+    }
+    if (request.query.trim() === '') {
       return { match_all: {} };
     }
     if (basicFields.length === 0) {

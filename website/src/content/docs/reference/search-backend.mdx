@@ -58,6 +58,20 @@ backend is called. `SearchRequest` has:
 | `sort`, `order`    | a declared sort or `relevance`; `asc` or `desc` | `relevance` is best match first, stable across pages for an empty query. |
 | `visibility`       | the [search visibility filter](/configuration/visibility/#searchvisibilityfilter)'s result | Already resolved, so the backend never calls consumer code. |
 
+An advanced query arrives already parsed and checked against the declared advanced fields and the
+[caps](/reference/search-queries/#caps), as an `AdvancedQuery`:
+
+```ts
+type AdvancedQuery =
+  | { type: 'and' | 'or'; clauses: AdvancedQuery[] }
+  | { type: 'not'; clause: AdvancedQuery } // everything the clause doesn't match
+  | { type: 'match'; field: string; value: string; phrase: boolean }
+  | { type: 'all' }; // an empty query
+```
+
+A `match` on a `text` field matches all the words of `value`, or the exact phrase if `phrase`; on any other type it
+matches `value` exactly.
+
 `context` is the request context, `{ request, fastify }`.
 
 The backend applies `visibility` to the hits, the total and the facets, and returns a `SearchResult`:
