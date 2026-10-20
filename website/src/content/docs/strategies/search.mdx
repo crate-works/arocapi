@@ -61,10 +61,10 @@ change to the factory call. They differ in how they rank and how much they cost 
 | Matching         | Per-field analysers, small typos still match                | Whole words, no typos                                |
 | Runs on          | A separate OpenSearch cluster                               | The database you already have                        |
 | Scale            | Large collections and heavy query load                      | Small collections, fine on a Raspberry Pi            |
-| Advanced queries | Yes                                                         | Not yet                                              |
 
-Filters, ranges, facets, geo, sorts, exact totals, the search visibility filter, the query grammar and errors are the
-same on both. Only which entities a basic query finds, and their relevance order, differ.
+Filters, ranges, facets (`date` facets too), geo, sorts, exact totals, the search visibility filter, advanced queries,
+the query grammar and errors are the same on both. Only which entities a query's words find, and their relevance
+order, differ.
 
 ### Lightweight: the Postgres backend
 

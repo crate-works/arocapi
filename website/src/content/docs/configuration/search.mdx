@@ -116,7 +116,11 @@ them. `searchExtra` is empty.
 Geo filters on Postgres's built-in `point` type with a GiST index, and counts the geohash grid by prefixes of each
 entity's stored geohash, so it needs no PostGIS.
 
-`PostgresBackend` doesn't support advanced queries yet.
+An [advanced query](/reference/search-queries/) runs over the same `simple` words: `field: words` needs every word
+in that field, a quoted phrase needs them in order (`phraseto_tsquery`), and other types match the value exactly, a
+`date` as its first UTC instant. Relevance is `ts_rank` over the query's text matches outside `NOT`, so entities
+matching more of the query come first, tie-broken by id, the same order on every page. A value a field can't hold,
+or a query past a Postgres limit such as `max_stack_depth`, is a 422.
 
 ## Dates
 

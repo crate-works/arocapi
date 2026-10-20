@@ -1,5 +1,5 @@
 import { join, type Sql, sqltag as sql } from '@prisma/client/runtime/client';
-import type { SearchRequest, SearchResult } from './backend.js';
+import { SearchQueryError, type SearchRequest, type SearchResult } from './backend.js';
 import {
   capabilitiesFromFields,
   type FieldDeclarations,
@@ -7,6 +7,7 @@ import {
   type SearchDocument,
   storeDocuments,
 } from './fields.js';
+import { advancedQueryFor } from './postgresAdvanced.js';
 import { valueBuckets, yearBuckets } from './postgresFacets.js';
 import { boundingBoxCondition, geohashGrid } from './postgresGeo.js';
 import { typed, valuesOf } from './postgresValues.js';
@@ -62,12 +63,7 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
   prisma,
   fields,
 }: PostgresBackendOptions<Fields>) => {
-  // Advanced search isn't implemented yet, so it isn't published and arocapi never sends it
-  const {
-    searchTypes: { advanced: _, ...searchTypes },
-    ...published
-  } = capabilitiesFromFields(fields);
-  const capabilities = { ...published, searchTypes };
+  const capabilities = capabilitiesFromFields(fields);
   const declared = Object.entries(fields);
   const geoField = declared.find(([, { type }]) => type === 'geo')?.[0];
   const textFields = declared.filter(([, { type }]) => type === 'text').map(([name]) => name);
@@ -105,16 +101,23 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
       ? sql`search.rank DESC`
       : sql`${typed(fields[sort].type, sql`search."values" ->> ${sort}::text`)} ${order === 'asc' ? sql`ASC` : sql`DESC`} NULLS LAST`;
 
+  const queryFor = (request: SearchRequest) => {
+    if (request.searchType === 'advanced') {
+      return advancedQueryFor(request.query, fields, TEXT_SEARCH_CONFIG);
+    }
+    if (request.query.trim() === '') {
+      return { condition: sql`TRUE`, rank: sql`0` };
+    }
+    const tsquery = sql`websearch_to_tsquery(${TEXT_SEARCH_CONFIG}, ${request.query}::text)`;
+
+    return { condition: sql`search.basic @@ ${tsquery}`, rank: sql`ts_rank(search.basic, ${tsquery})` };
+  };
+
   return {
     capabilities,
 
     search: async (request: SearchRequest): Promise<SearchResult> => {
-      const { query } = request as Extract<SearchRequest, { searchType: 'basic' }>;
-      const tsquery = sql`websearch_to_tsquery(${TEXT_SEARCH_CONFIG}, ${query}::text)`;
-      const [matches, rank] =
-        query.trim() === ''
-          ? [sql`TRUE`, sql`0`]
-          : [sql`search.basic @@ ${tsquery}`, sql`ts_rank(search.basic, ${tsquery})`];
+      const { condition: matches, rank } = queryFor(request);
       const conditions = [
         matches,
         ...Object.entries(request.filters.terms).map(
@@ -131,9 +134,8 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
       ];
 
       const { geohashPrecision } = request;
-      const [result] = await prisma.$queryRaw<
-        (Pick<SearchResult, 'total' | 'facets' | 'geohashGrid'> & { hits: string[] })[]
-      >(sql`
+      const [result] = await asQueryErrors(
+        prisma.$queryRaw<(Pick<SearchResult, 'total' | 'facets' | 'geohashGrid'> & { hits: string[] })[]>(sql`
         WITH matched AS (
           SELECT search.id, search."values", search.geohash, ${rank} AS rank
           FROM entity_search AS search
@@ -152,7 +154,8 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
           ) AS hits,
           ${join([sql`'{}'::jsonb`, ...facets], ' || ')} AS facets,
           ${geohashPrecision === undefined ? sql`NULL` : geohashGrid(geohashPrecision)} AS "geohashGrid"
-      `);
+      `),
+      );
 
       return {
         total: result.total,
@@ -217,6 +220,26 @@ export const PostgresBackend = <const Fields extends FieldDeclarations>({
       await prisma.$executeRaw(sql`DELETE FROM entity_search WHERE id = ANY(${ids}::text[])`);
     },
   };
+};
+
+type DriverAdapterError = {
+  meta?: { driverAdapterError?: { cause?: { originalCode?: string; originalMessage?: string } } };
+};
+
+// Data exceptions (22) come from query values a field can't hold; program limits (54) from queries too big to run
+const QUERY_ERROR_CLASSES = ['22', '54'];
+
+const asQueryErrors = async <T>(query: PromiseLike<T>) => {
+  try {
+    return await query;
+  } catch (error) {
+    const cause = (error as DriverAdapterError).meta?.driverAdapterError?.cause;
+    if (cause && QUERY_ERROR_CLASSES.some((errorClass) => cause.originalCode?.startsWith(errorClass))) {
+      throw new SearchQueryError(cause.originalMessage);
+    }
+
+    throw error;
+  }
 };
 
 const toJson = (value: unknown) => (value instanceof Date ? value.toISOString() : value);

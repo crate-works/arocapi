@@ -1074,7 +1074,6 @@ describe.each(['OpenSearchBackend', 'PostgresBackend'] as const)('Integration Te
       prepare: async () => {
         await getTestPrisma().entitySearch.deleteMany({});
       },
-      skip: ['advanced'],
     });
   }
 });

@@ -11,8 +11,6 @@ export type SearchBackendContractHarness<Backend extends SearchBackend = SearchB
   create: (fields: FieldDeclarations) => Backend;
   /** Make the backend ready to index, starting from nothing stored */
   prepare: (backend: Backend) => Promise<void>;
-  /** Contract blocks the backend doesn't implement yet: `advanced` queries, and `ranges` for dates, numbers and geo */
-  skip?: ('advanced' | 'ranges')[];
 };
 
 const fields = {
@@ -56,8 +54,6 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
   name: string,
   harness: SearchBackendContractHarness<Backend>,
 ) => {
-  const unless = (block: 'advanced' | 'ranges') => ({ skip: harness.skip?.includes(block) });
-
   describe(`${name} search contract`, () => {
     let app: FastifyInstance;
 
@@ -210,7 +206,7 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
       });
     });
 
-    describe('with dates, numbers and geo', unless('ranges'), () => {
+    describe('with dates, numbers and geo', () => {
       const geoFields = {
         name: { type: 'text', sort: true },
         datePublished: { type: 'date', facet: true },
@@ -357,7 +353,7 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
       expect(response.json<StandardErrorResponse>().error.code).toBe('VALIDATION_ERROR');
     });
 
-    describe('advanced queries', unless('advanced'), () => {
+    describe('advanced queries', () => {
       const advancedFields = {
         name: { type: 'text', advanced: true, label: 'Name' },
         description: { type: 'text', advanced: true },
@@ -389,7 +385,6 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
         { id: id(5), name: 'echidna', inLanguage: 'english', open: true },
       ];
 
-      // biome-ignore lint/suspicious/noDuplicateTestHooks: Biome doesn't see describe with options as its own block
       beforeEach(async () => {
         await load(advancedFields, advancedDocs);
       });
@@ -452,6 +447,18 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
         expect(response.json<StandardErrorResponse>().error.details?.violations).toEqual([
           { field: 'query', message: expect.any(String) },
         ]);
+      });
+
+      it('ranks entities matching more of the query first, stable across pages', async () => {
+        const query = 'name: kangaroo OR description: kangaroo';
+        const all = await ids({ searchType: 'advanced', query });
+        const pages = await Promise.all(
+          [0, 1, 2].map((offset) => ids({ searchType: 'advanced', query, limit: 1, offset })),
+        );
+
+        expect(all.slice(0, 2).sort()).toEqual([id(1), id(2)]);
+        expect(all[2]).toBe(id(3));
+        expect(pages.flat()).toEqual(all);
       });
     });
 
@@ -563,6 +570,47 @@ export const describeSearchBackendContract = <Backend extends SearchBackend>(
         expect(logError).toHaveBeenCalledWith({
           err: expect.objectContaining({ message: expect.stringContaining(`"${field}"`) }),
         });
+      });
+    });
+
+    describe('advanced query values', () => {
+      const valueFields = {
+        pages: { type: 'number', advanced: true },
+        open: { type: 'boolean', advanced: true },
+        created: { type: 'date', advanced: true },
+      } satisfies FieldDeclarations;
+
+      const valueDocs: SearchDocument<typeof valueFields>[] = [
+        { id: id(1), pages: 10, open: true, created: '2001' },
+        { id: id(2), pages: 2.5, open: false, created: '2010-06-01T10:00:00+10:00' },
+      ];
+
+      beforeEach(async () => {
+        await load(valueFields, valueDocs);
+      });
+
+      it.each([
+        ['a decimal number', 'pages: 2.5', [2]],
+        ['a partial date as its first UTC instant', 'created: 2001', [1]],
+        ['a date with an offset as its UTC instant', 'created: "2010-06-01T00:00:00Z"', [2]],
+      ])('matches %s exactly', async (_case, query, expected) => {
+        expect(await ids({ searchType: 'advanced', query })).toEqual(expected.map(id));
+      });
+
+      it.each([
+        ['a number field', 'pages: abc'],
+        ['a number field, out of range', 'pages: 1e999'],
+        ['a boolean field', 'open: yes'],
+        ['a date field', 'created: abc'],
+      ])("rejects a value %s can't hold with a 422", async (_field, query) => {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/search',
+          payload: { searchType: 'advanced', query },
+        });
+
+        expect(response.statusCode).toBe(422);
+        expect(response.json<StandardErrorResponse>().error.code).toBe('VALIDATION_ERROR');
       });
     });
   });

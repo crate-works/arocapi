@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { isolatedPrisma } from '../test/helpers/postgresSchema.js';
 import { describeSearchBackendWrites } from '../test/helpers/searchBackendWrite.js';
+import { type AdvancedQuery, SearchQueryError } from './backend.js';
 import type { FieldDeclarations } from './fields.js';
 import { PostgresBackend } from './postgres.js';
 
@@ -144,6 +145,49 @@ describe('PostgresBackend', () => {
     await backend.index([{ id: 'http://example.com/1', location: { lat: 57.64911, lng: 10.40744 } }]);
 
     expect((await readRow('http://example.com/1'))?.geohash).toMatch(/^u4pruydqqvj[0-9b-hjkmnp-z]$/);
+  });
+
+  it('throws a SearchQueryError for a query deeper than Postgres can run', async () => {
+    const advanced = { name: { type: 'text', advanced: true } } satisfies FieldDeclarations;
+    let query: AdvancedQuery = { type: 'match', field: 'name', value: 'one', phrase: false };
+    for (let depth = 0; depth < 2000; depth++) {
+      query = { type: 'not', clause: query };
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SET LOCAL max_stack_depth = '100kB'`;
+      const searching = PostgresBackend({ prisma: tx, fields: advanced }).search({
+        searchType: 'advanced',
+        query,
+        filters: { terms: {}, ranges: {} },
+        limit: 10,
+        offset: 0,
+        sort: 'relevance',
+        order: 'desc',
+        visibility: {},
+      });
+
+      await expect(searching).rejects.toBeInstanceOf(SearchQueryError);
+      await expect(searching).rejects.toThrow('stack depth limit exceeded');
+    });
+  });
+
+  it('passes through a database error that is not about the query', async () => {
+    const down = new Error('Connection refused');
+    const unreachable = { $queryRaw: () => Promise.reject(down), $executeRaw: () => Promise.reject(down) };
+
+    const searching = PostgresBackend({ prisma: unreachable, fields }).search({
+      searchType: 'basic',
+      query: '',
+      filters: { terms: {}, ranges: {} },
+      limit: 10,
+      offset: 0,
+      sort: 'relevance',
+      order: 'desc',
+      visibility: {},
+    });
+
+    await expect(searching).rejects.toBe(down);
   });
 
   it('publishes capabilities from the field declarations', () => {
