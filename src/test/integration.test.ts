@@ -8,8 +8,10 @@ import { Prisma } from '../generated/prisma/client.js';
 import { OpenSearchBackend } from '../search/opensearch/opensearch.js';
 import { PostgresBackend } from '../search/postgres/postgres.js';
 import { DirectoryStorage } from '../storage/directory/directory.js';
+import { S3Storage } from '../storage/s3/s3.js';
 import type { AuthorisedEntity, AuthorisedFile } from '../transformers/default.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
+import { putTestObjects, testS3Client } from './helpers/s3.js';
 import { describeSearchBackendContract } from './helpers/searchBackendContract.js';
 import { describeStorageContract } from './helpers/storageBackendContract.js';
 import {
@@ -1089,6 +1091,25 @@ describe('Storage backends', () => {
       },
       meta: (path) => ({ storagePath: path }),
       key: (path) => path,
+    });
+  });
+
+  describe('S3Storage', () => {
+    const client = testS3Client();
+
+    afterAll(() => {
+      client.destroy();
+    });
+
+    describe.each(['redirect', 'stream'] as const)('with %s delivery', (delivery) => {
+      const bucket = `storage-contract-${delivery}`;
+
+      describeStorageContract<string>(`S3Storage (${delivery})`, {
+        create: (locate) => S3Storage({ client, bucket, locate, delivery }),
+        prepare: (items) => putTestObjects(client, bucket, items),
+        meta: (path) => ({ storageKey: path }),
+        key: (path) => path,
+      });
     });
   });
 });

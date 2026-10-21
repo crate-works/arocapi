@@ -56,6 +56,30 @@ const createRows = async (rows: Row[]) => {
   });
 };
 
+/** What a client relies on from the server a redirect sends it to; the rest varies per response */
+const followedHeaders = ['content-type', 'content-length', 'content-disposition', 'etag', 'last-modified'];
+
+/**
+ * What the client ends up with: arocapi's response, or the response of the server it redirects to
+ */
+const serve = async (instance: FastifyInstance, method: 'GET' | 'HEAD', url: string) => {
+  const reply = await instance.inject({ method, url });
+  if (reply.statusCode !== 302) {
+    return { statusCode: reply.statusCode, body: reply.body, headers: reply.headers };
+  }
+
+  // A presigned URL is signed for GET only, so HEAD's redirect is followed with GET and its body dropped
+  const response = await fetch(String(reply.headers.location));
+  const body = await response.text();
+  const headers = followedHeaders.flatMap((header) => {
+    const value = response.headers.get(header);
+
+    return value === null ? [] : [[header, value]];
+  });
+
+  return { statusCode: response.status, body: method === 'HEAD' ? '' : body, headers: Object.fromEntries(headers) };
+};
+
 /**
  * The `/entity/:id/metadata` and `/file/:id` cases every stored reference backend must pass
  */
@@ -67,8 +91,8 @@ export const describeStorageContract = <Key>(name: string, harness: StorageContr
     let app: FastifyInstance;
 
     const getAndHead = async (url: string) => {
-      const get = await app.inject({ method: 'GET', url });
-      const head = await app.inject({ method: 'HEAD', url });
+      const get = await serve(app, 'GET', url);
+      const head = await serve(app, 'HEAD', url);
 
       return { get, head };
     };
@@ -224,8 +248,8 @@ export const describeStorageContract = <Key>(name: string, harness: StorageContr
       });
 
       it('serves what locate names, ignoring meta', async () => {
-        const metadata = await located.inject({ method: 'GET', url: entityUrl('no-key') });
-        const content = await located.inject({ method: 'GET', url: fileUrl('no-key.wav') });
+        const metadata = await serve(located, 'GET', entityUrl('no-key'));
+        const content = await serve(located, 'GET', fileUrl('no-key.wav'));
 
         expect(metadata.statusCode).toBe(200);
         expect(metadata.body).toBe(crateItem.body);
@@ -234,16 +258,16 @@ export const describeStorageContract = <Key>(name: string, harness: StorageContr
       });
 
       it('answers 404 when locate returns null', async () => {
-        const metadata = await located.inject({ method: 'GET', url: entityUrl('collection') });
-        const content = await located.inject({ method: 'GET', url: fileUrl('greeting.wav') });
+        const metadata = await serve(located, 'GET', entityUrl('collection'));
+        const content = await serve(located, 'GET', fileUrl('greeting.wav'));
 
         expect(metadata.statusCode).toBe(404);
         expect(content.statusCode).toBe(404);
       });
 
       it('refuses an unsafe key from locate with 500', async () => {
-        const metadata = await located.inject({ method: 'GET', url: entityUrl('absolute-crate') });
-        const content = await located.inject({ method: 'GET', url: fileUrl('absolute.wav') });
+        const metadata = await serve(located, 'GET', entityUrl('absolute-crate'));
+        const content = await serve(located, 'GET', fileUrl('absolute.wav'));
 
         expect(metadata.statusCode).toBe(500);
         expect(content.statusCode).toBe(500);

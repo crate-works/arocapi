@@ -1,6 +1,6 @@
 ---
 title: Storage
-description: The storage backend that delivers Metadata and Content, and the DirectoryStorage options.
+description: The storage backend that delivers Metadata and Content, and the DirectoryStorage and S3Storage options.
 sidebar:
   order: 4
 ---
@@ -8,11 +8,12 @@ sidebar:
 import { Code } from '@astrojs/starlight/components';
 import storageDirectory from '@examples/configuration/storage-directory.ts?raw';
 import storageMixing from '@examples/configuration/storage-mixing.ts?raw';
+import storageS3 from '@examples/configuration/storage-s3.ts?raw';
 
 `GET` and `HEAD /entity/:id/metadata` and `/file/:id` go through a storage backend. arocapi calls it only after the
 entity is Visible and the request has access, so it doesn't need its own checks (see the [request
 lifecycle](/concepts/request-lifecycle/#metadata-and-content-routes)). arocapi ships
-[`DirectoryStorage`](#directorystorage), or you can [write your own](/reference/storage-backend/).
+[`DirectoryStorage`](#directorystorage) and [`S3Storage`](#s3storage), or you can [write your own](/reference/storage-backend/).
 [Storage](/strategies/storage/) compares ways to serve bytes.
 
 | Option    | Required | Type             | Default | Purpose                                                    |
@@ -63,6 +64,37 @@ key names the RO-Crate metadata file itself, so several entities can share one.
 
 Content-Length and Last-Modified come from the file, with a weak ETag from its size and modification time.
 Content-Type comes from `File.mediaType`; Metadata is always `application/ld+json`.
+
+## `S3Storage`
+
+Serves both halves from a bucket on any S3-compatible store, such as AWS S3, Cloudflare R2, Garage or VersityGW.
+Import it from `arocapi/storage/s3`, and install its optional peer dependencies `@aws-sdk/client-s3` and
+`@aws-sdk/s3-request-presigner`:
+
+<Code code={storageS3} lang="ts" />
+
+| Option      | Required | Type                      | Default                | Purpose                                                       |
+| ----------- | -------- | ------------------------- | ---------------------- | ------------------------------------------------------------- |
+| `client`    | yes      | `S3Client`                | none                   | Your client. You configure its credentials and endpoint, and destroy it at shutdown. |
+| `bucket`    | yes      | string                    | none                   | The bucket every Storage key is relative to.                  |
+| `locate`    | no       | `{ metadata?, content? }` | read `meta.storageKey` | Where each item sits in the bucket: `metadata(entity)` and `content(file, entity)` return, or resolve to, a key or `null`. |
+| `delivery`  | no       | `'redirect'` or `'stream'` | `'redirect'`          | How Content reaches the client. Metadata always streams.      |
+| `expiresIn` | no       | number                    | `300`                  | Seconds a presigned Content URL stays valid.                  |
+
+Without `locate`, Metadata is read from `Entity.meta.storageKey` and Content from `File.meta.storageKey`.
+
+- **`redirect`** answers `/file/:id` with a 302 to a presigned `GetObject` URL, for `HEAD` as well as `GET`. The URL
+  makes the bucket answer with Content-Type from `File.mediaType` and the request's Content-Disposition, so
+  `?disposition` and `?filename` still apply. Presigning makes no request, so a missing object is only found when the
+  client follows the URL. The URL bypasses access until it expires, so keep `expiresIn` short; a download only has to
+  start within it. A browser on another origin needs CORS on the bucket, or `?noRedirect=true`.
+- **`stream`** proxies the bytes through arocapi, so clients never reach the bucket. Metadata is always served this
+  way. arocapi reads Content-Length, ETag and Last-Modified with `HeadObject`, then fetches that same version with
+  `GetObject` and `If-Match`; an object replaced in between is a 500 rather than a mix of two versions.
+
+A missing key, a `locate` returning `null`, or no object at the key (on `stream`, and for Metadata) is a 404. A
+`storageKey` that isn't a string, or a key that is absolute or has a `..` segment, is a 500 before any request or
+presign. Any other error from the store is a logged 500.
 
 ## Query parameters
 

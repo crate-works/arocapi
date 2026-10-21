@@ -28,8 +28,9 @@ these keys when you index:
 | Backend                                               | Content                 | Metadata                  | Override                                     |
 | ----------------------------------------------------- | ----------------------- | ------------------------- | -------------------------------------------- |
 | [`DirectoryStorage`](/configuration/storage/#directorystorage) | `File.meta.storagePath` | `Entity.meta.storagePath` | `locate.content(file, entity)`, `locate.metadata(entity)` |
+| [`S3Storage`](/configuration/storage/#s3storage)       | `File.meta.storageKey`  | `Entity.meta.storageKey`  | `locate.content(file, entity)`, `locate.metadata(entity)` |
 
-Keys are relative to the backend's root. A key that isn't a string, or that is absolute or has a `..` segment, is a
+Keys are relative to the backend's root or bucket. A key that isn't a string, or that is absolute or has a `..` segment, is a
 500. The root exports a TypeScript type for each shape, such as `DirectoryStorageMeta`:
 
 <Code code={entityMetaStoragePath} lang="ts" />

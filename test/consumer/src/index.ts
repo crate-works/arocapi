@@ -1,4 +1,5 @@
 // Type-checked against the packed tarball by scripts/check-consumer-types.sh, never run
+import type { S3Client } from '@aws-sdk/client-s3';
 import type { Client } from '@opensearch-project/opensearch';
 import arocapi, {
   AllPublicAccess,
@@ -15,11 +16,13 @@ import arocapi, {
 } from 'arocapi';
 import { OpenSearchBackend } from 'arocapi/search/opensearch';
 import { DirectoryStorage } from 'arocapi/storage/directory';
+import { S3Storage } from 'arocapi/storage/s3';
 import Fastify from 'fastify';
 import type { Entity, File, Prisma, PrismaClient } from './generated/prisma/client.ts';
 
 declare const prisma: PrismaClient;
 declare const opensearch: Client;
+declare const s3: S3Client;
 
 // A client generated with extra models, a `$extends` client and the client inside `$transaction` are all accepted
 export const clients: ArocapiPrismaClient[] = [prisma, prisma.$extends({})];
@@ -61,6 +64,11 @@ export const located = DirectoryStorage({
     content: async (file: File) => file.filename,
   },
 });
+
+export const bucket: StorageBackend = S3Storage({ client: s3, bucket: 'archive', delivery: 'stream', expiresIn: 60 });
+
+// @ts-expect-error S3 Content is a redirect or a stream
+export const badDelivery = S3Storage({ client: s3, bucket: 'archive', delivery: 'path' });
 
 // The meta shapes the reference backends read are what an indexer writes
 export const metas: Prisma.InputJsonObject[] = [
