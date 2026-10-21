@@ -16,7 +16,7 @@ export const AllVisibleEntityFilter: EntityVisibilityFilter = () => ({});
  *
  * Use together with AllVisibleEntityFilter for repositories with no hidden entities.
  */
-export const AllVisibleSearchFilter: SearchVisibilityFilter = () => ({ match_all: {} });
+export const AllVisibleSearchFilter: SearchVisibilityFilter = () => ({});
 
 /**
  * Whether a request has no credentials; without isAuthenticated the repository has no logins, so no request is

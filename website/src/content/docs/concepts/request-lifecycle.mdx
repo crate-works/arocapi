@@ -47,7 +47,8 @@ such as an entity id that isn't a URL or a `limit` over 1000, gets a `400` and n
 ## Visibility
 
 arocapi calls your `entityVisibilityFilter` and adds its result to the database query with `AND`. On `/search` it also
-calls `searchVisibilityFilter` and adds it as a filter on the OpenSearch query, then reloads the hits from the database
+calls `searchVisibilityFilter` and passes its result to the search backend, which applies it to the hits, the total
+and the facets, then reloads the hits from the database
 with the entity filter. Hidden entities are never loaded, so nothing after this step can see them, and totals and
 facets already exclude them.
 
@@ -72,8 +73,8 @@ Record routes don't enforce access. A Denied entity is still listed, with `acces
 `false`.
 
 Files follow the same steps with `fileTransformers`: the access function is called with the file's entity, and the
-file's `access` keeps only `content` and `contentAuthorizationUrl`. On `/search`, arocapi adds `searchExtra` (score and
-highlights) after your transformers have run.
+file's `access` keeps only `content` and `contentAuthorizationUrl`. On `/search`, arocapi adds the backend's `searchExtra`
+(such as the score) after your transformers have run.
 
 Transformers can rely on `access` being present:
 

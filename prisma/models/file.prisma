@@ -1,8 +1,8 @@
 model File {
-  id        String   @id @db.VarChar(768)
+  id        String   @id
 
-  filename  String   @db.VarChar(255)
-  mediaType String   @db.VarChar(127)
+  filename  String
+  mediaType String
   size      BigInt
 
   meta      Json?

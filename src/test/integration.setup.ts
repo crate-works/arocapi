@@ -1,37 +1,49 @@
 import { Client } from '@opensearch-project/opensearch';
-import { PrismaMariaDb } from '@prisma/adapter-mariadb';
+import { PrismaPg } from '@prisma/adapter-pg';
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 import type { Options } from '../app.js';
 import app, { AllPublicAccess, AllVisibleEntityFilter, AllVisibleSearchFilter } from '../app.js';
 import { PrismaClient } from '../generated/prisma/client.js';
+import type { FieldDeclarations } from '../search/fields.js';
+import { OpenSearchBackend } from '../search/opensearch/opensearch.js';
+import { PostgresBackend } from '../search/postgres/postgres.js';
+
+export type TestBackend = 'OpenSearchBackend' | 'PostgresBackend';
 
 let fastify: FastifyInstance;
 let prisma: PrismaClient;
 let opensearch: Client;
+let search:
+  | ReturnType<typeof OpenSearchBackend<typeof testFields>>
+  | ReturnType<typeof PostgresBackend<typeof testFields>>;
+
+const testFields = {
+  name: { type: 'text', weight: 2, sort: true },
+  description: { type: 'text' },
+  entityType: { type: 'keyword', facet: true },
+  draft: { type: 'boolean' },
+} satisfies FieldDeclarations;
 
 export const getTestApp = () => fastify;
+export const getTestOpenSearch = () => opensearch;
+export const getTestPrisma = () => prisma;
 
-export async function setupIntegrationTests() {
-  process.env.DATABASE_URL = 'mysql://root:password@localhost:3307/catalog_test';
+export async function setupIntegrationTests(backend: TestBackend) {
+  process.env.DATABASE_URL = 'postgresql://postgres:password@localhost:5433/catalog_test';
   process.env.OPENSEARCH_URL = 'http://localhost:9201';
   process.env.NODE_ENV = 'test';
 
-  const adapter = new PrismaMariaDb({
-    host: 'localhost',
-    user: 'root',
-    password: 'password',
-    database: 'catalog_test',
-    port: 3307,
-    connectionLimit: 5,
-    // NOTE: This is required when using the default MariaDB server configuration with SSL disabled. In production, you should properly configure SSL and remove this option.
-    allowPublicKeyRetrieval: true,
-  });
+  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL, max: 5 });
   prisma = new PrismaClient({ adapter });
 
   opensearch = new Client({
     node: process.env.OPENSEARCH_URL,
   });
+  search =
+    backend === 'OpenSearchBackend'
+      ? OpenSearchBackend({ client: opensearch, fields: testFields, indexName: 'integration-test', refresh: true })
+      : PostgresBackend({ prisma, fields: testFields });
 
   fastify = await buildTestApp();
 }
@@ -41,7 +53,7 @@ export async function buildTestApp(overrides: Partial<Options> = {}) {
 
   await instance.register(app, {
     prisma,
-    opensearch,
+    search,
     access: AllPublicAccess,
     entityVisibilityFilter: AllVisibleEntityFilter,
     searchVisibilityFilter: AllVisibleSearchFilter,
@@ -82,10 +94,28 @@ export async function cleanupTestData() {
   await prisma.entity.deleteMany({});
 
   await opensearch.indices.delete({
-    index: 'entities',
+    index: 'integration-test',
     ignore_unavailable: true,
   });
 }
+
+type TestEntity = { id: string; name: string; description?: string; entityType?: string };
+
+/**
+ * Add entities to the database, as a consumer does before indexing their search documents
+ */
+export const createTestEntities = async (entities: TestEntity[]) => {
+  await prisma.entity.createMany({
+    data: entities.map(({ id, name, description = '', entityType = 'http://pcdm.org/models#Object' }) => ({
+      id,
+      name,
+      description,
+      entityType,
+      metadataLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
+      contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
+    })),
+  });
+};
 
 export async function seedTestData() {
   await cleanupTestData();
@@ -184,37 +214,18 @@ export async function seedTestData() {
     data: testFiles,
   });
 
-  await opensearch.indices.create({
-    index: 'entities',
-    body: {
-      mappings: {
-        properties: {
-          id: { type: 'keyword' },
-          name: {
-            type: 'text',
-            fields: {
-              keyword: { type: 'keyword' },
-            },
-          },
-          description: { type: 'text' },
-          entityType: { type: 'keyword' },
-          memberOf: { type: 'keyword' },
-          rootCollection: { type: 'keyword' },
-          location: { type: 'geo_point' },
-          inLanguage: { type: 'keyword' },
-          mediaType: { type: 'keyword' },
-          communicationMode: { type: 'keyword' },
-        },
-      },
-    },
-  });
-
-  const testDocs = testEntities.flatMap((entity) => [{ index: { _index: 'entities', _id: entity.id } }, entity]);
-
-  await opensearch.bulk({
-    body: testDocs,
-    refresh: true,
-  });
+  if ('createIndex' in search) {
+    await search.createIndex();
+  }
+  await search.index(
+    testEntities.map(({ id, name, description, entityType, meta }) => ({
+      id,
+      name,
+      description,
+      entityType,
+      ...(meta && { draft: meta.draft }),
+    })),
+  );
 
   return testEntities;
 }

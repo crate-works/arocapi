@@ -11,11 +11,12 @@ import arocapi, {
   errorHandler,
   notFoundHandler,
 } from './app.js';
-import { opensearch, prisma } from './test/helpers/fastify.js';
+import { fakeSearchBackend } from './test/helpers/fakeSearchBackend.js';
+import { prisma } from './test/helpers/fastify.js';
 
 const arocapiOptions = {
   prisma,
-  opensearch,
+  search: fakeSearchBackend().backend,
   access: AllPublicAccess,
   fileHandler: { get: vi.fn(), head: vi.fn() },
   roCrateHandler: { get: vi.fn(), head: vi.fn() },

@@ -1,7 +1,6 @@
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import { Client } from '@opensearch-project/opensearch';
-import { PrismaMariaDb } from '@prisma/adapter-mariadb';
+import { PrismaPg } from '@prisma/adapter-pg';
 import arocapi, {
   AllPublicAccess,
   AllVisibleEntityFilter,
@@ -11,11 +10,11 @@ import arocapi, {
 } from 'arocapi';
 import Fastify from 'fastify';
 import { PrismaClient } from './generated/prisma/client.ts';
+import { search } from './search.ts';
 
 const prisma = new PrismaClient({
-  adapter: new PrismaMariaDb(process.env.DATABASE_URL as string),
+  adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
 });
-const opensearch = new Client({ node: process.env.OPENSEARCH_URL });
 
 // Where each entity's RO-Crate and each file is stored, kept in their meta column
 type StoredMeta = { storagePath: string };
@@ -67,7 +66,7 @@ const fastify = Fastify({ logger: true });
 
 await fastify.register(arocapi, {
   prisma,
-  opensearch,
+  search,
   entityVisibilityFilter: AllVisibleEntityFilter,
   searchVisibilityFilter: AllVisibleSearchFilter,
   access: AllPublicAccess,

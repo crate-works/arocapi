@@ -17,10 +17,12 @@ RO-Crate metadata and files on local disk, then shows how to require a login for
 
 arocapi needs seven options:
 
-- `prisma` and `opensearch`: the clients for your database and search index
-  ([Data sources](/configuration/data-sources/)).
+- `prisma`: the client for your database ([Data sources](/configuration/data-sources/)).
+- `search`: the search backend from [the previous page](/getting-started/opensearch/)
+  ([Search](/configuration/search/)).
 - `entityVisibilityFilter` and `searchVisibilityFilter`: which entities exist for a request, as a Prisma condition and
-  an OpenSearch query. Hidden entities never appear in any response ([Visibility](/configuration/visibility/)).
+  a condition over your declared search fields. Hidden entities never appear in any response
+  ([Visibility](/configuration/visibility/)).
 - `access`: whether a request may read a visible entity's full RO-Crate metadata and, for a file, its content
   ([Access](/configuration/access/)).
 - `fileHandler` and `roCrateHandler`: how to fetch a file's content and an entity's RO-Crate metadata from your
@@ -62,7 +64,7 @@ cat > data/ro-crate-metadata.json <<'EOF'
 EOF
 ```
 
-Then a script that records both entities in the database and the index:
+Then a script that records both entities in the database, then indexes their search documents:
 
 <Code code={firstApiSeed} lang="ts" title="scripts/seed.ts" />
 

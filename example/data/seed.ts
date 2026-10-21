@@ -3,12 +3,25 @@ import { join } from 'node:path';
 
 import { Client } from '@opensearch-project/opensearch';
 
+import { type FieldDeclarations, OpenSearchBackend } from '../../dist/app.js';
 import { PrismaClient } from '../../dist/generated/prisma/client.js';
 
 const prisma = new PrismaClient();
 const opensearch = new Client({
   node: process.env.OPENSEARCH_URL || 'http://localhost:9200',
 });
+
+// Keep in step with src/index.dev.ts
+const fields = {
+  name: { type: 'text', weight: 2, sort: true, label: 'Name' },
+  description: { type: 'text' },
+  entityType: { type: 'keyword', facet: true, label: 'Type' },
+  inLanguage: { type: 'keyword', facet: true, label: 'Language' },
+  mediaType: { type: 'keyword', facet: true, label: 'Media type' },
+  communicationMode: { type: 'keyword', facet: true, label: 'Communication mode' },
+  location: { type: 'geo' },
+} satisfies FieldDeclarations;
+const search = OpenSearchBackend({ client: opensearch, fields });
 
 type RoCrateMetadata = {
   '@context': string;
@@ -196,66 +209,17 @@ const processItem = async (
 const createOpenSearchIndex = async (): Promise<void> => {
   console.log('\nSetting up OpenSearch index...');
 
-  try {
-    await opensearch.indices.delete({ index: 'entities' });
-    console.log('  ✓ Deleted existing index');
-  } catch (_error) {
-    // Index doesn't exist, that's fine
-  }
+  await opensearch.indices.delete({ index: 'entities', ignore_unavailable: true });
+  await search.createIndex();
 
-  // Create new index with mappings
-  await opensearch.indices.create({
-    index: 'entities',
-    body: {
-      mappings: {
-        properties: {
-          id: { type: 'keyword' },
-          name: {
-            type: 'text',
-            fields: {
-              keyword: { type: 'keyword' },
-            },
-          },
-          description: { type: 'text' },
-          entityType: { type: 'keyword' },
-          memberOf: { type: 'keyword' },
-          rootCollection: { type: 'keyword' },
-          metadataLicenseId: { type: 'keyword' },
-          contentLicenseId: { type: 'keyword' },
-          inLanguage: { type: 'keyword' },
-          location: { type: 'geo_point' },
-          mediaType: { type: 'keyword' },
-          communicationMode: { type: 'keyword' },
-        },
-      },
-    },
-  });
-
-  console.log('  ✓ Created index with mappings');
+  console.log('  ✓ Created index from the field declarations');
 };
 
 const indexEntities = async (): Promise<void> => {
   console.log('\nIndexing entities in OpenSearch...');
 
   const entities = await prisma.entity.findMany();
-  const operations = entities.flatMap((entity) => [
-    { index: { _index: 'entities', _id: `${entity.id}` } },
-    {
-      id: entity.id,
-      name: entity.name,
-      description: entity.description,
-      entityType: entity.entityType,
-      memberOf: entity.memberOf,
-      rootCollection: entity.rootCollection,
-      metadataLicenseId: entity.metadataLicenseId,
-      contentLicenseId: entity.contentLicenseId,
-    },
-  ]);
-
-  await opensearch.bulk({
-    body: operations,
-    refresh: true,
-  });
+  await search.index(entities.map(({ id, name, description, entityType }) => ({ id, name, description, entityType })));
 
   console.log(`  ✓ Indexed ${entities.length} entities`);
 };

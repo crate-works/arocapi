@@ -1,14 +1,14 @@
 model Entity {
-  id                String   @id @db.VarChar(768)
+  id                String   @id
 
-  name              String   @db.VarChar(512)
-  description       String   @db.Text
+  name              String
+  description       String
 
-  entityType        String   @db.VarChar(255)
-  memberOf          String?  @db.VarChar(768)
-  rootCollection    String?  @db.VarChar(768)
-  metadataLicenseId String   @db.VarChar(255)
-  contentLicenseId  String   @db.VarChar(255)
+  entityType        String
+  memberOf          String?
+  rootCollection    String?
+  metadataLicenseId String
+  contentLicenseId  String
 
   meta              Json?
 
@@ -16,6 +16,7 @@ model Entity {
   updatedAt         DateTime @updatedAt
 
   file              File?
+  search            EntitySearch?
 
   @@index([memberOf])
   @@index([rootCollection])

@@ -28,10 +28,11 @@ the `File` row. [Storage](/strategies/storage/) shows handlers reading locations
 ## Visibility flags
 
 A flag in `Entity.meta` can drive the [visibility filters](/configuration/visibility/). Mirror it into your search
-index, for example as `meta.draft`, so the search filter can match the same entities. In Prisma, a plain `not` on a
+documents as a declared field with no role, for example `draft: { type: 'boolean' }`, so the search filter can match
+the same entities. In Prisma, a plain `not` on a
 JSON path also excludes rows where `meta` or the path is null, so match those explicitly:
 
 <Code code={entityMetaDraft} lang="ts" />
 
-`Prisma` here is the namespace from your generated Prisma client. JSON path filters can't use an index on MySQL; for
+`Prisma` here is the namespace from your generated Prisma client. JSON path filters can't use arocapi's indexes; for
 large repositories, store visibility flags in your own indexed columns.

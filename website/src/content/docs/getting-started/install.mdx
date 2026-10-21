@@ -13,8 +13,7 @@ database and the search index, then register the plugin.
 - **Node.js 22.18 or later.** These pages run TypeScript files directly with `node`, which strips types without a build
   step.
 - **pnpm.** The commands use pnpm; npm and Yarn work too.
-- **A database Prisma supports.** These pages use MySQL. MariaDB and PostgreSQL also work with a different driver
-  adapter.
+- **PostgreSQL 18 or later.** arocapi doesn't support other databases.
 - **OpenSearch** for search.
 
 For local development, run the database and OpenSearch with Docker Compose:
@@ -22,12 +21,12 @@ For local development, run the database and OpenSearch with Docker Compose:
 ```yaml title="compose.yaml"
 services:
   db:
-    image: mysql:8
+    image: postgres:18
     ports:
-      - 3306:3306
+      - 5432:5432
     environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: catalog
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: catalog
 
   opensearch:
     image: opensearchproject/opensearch:3
@@ -56,15 +55,14 @@ pnpm pkg set type=module
 ## Add the packages
 
 ```sh
-pnpm add arocapi@beta fastify @opensearch-project/opensearch @prisma/client@7 @prisma/adapter-mariadb@7
+pnpm add arocapi@beta fastify @opensearch-project/opensearch @prisma/client@7 @prisma/adapter-pg@7
 pnpm add -D prisma@7 dotenv
 ```
 
 - `arocapi` is the plugin. It depends on Fastify, but you install `fastify` yourself to create the server it runs in.
 - `@prisma/client` is a peer dependency. arocapi reads entities through the Prisma client that you generate in your
   project. arocapi needs Prisma 7.10 or later 7.x; Prisma 8 isn't supported.
-- `@prisma/adapter-mariadb` is the driver adapter Prisma 7 needs to connect to MySQL or MariaDB. For PostgreSQL, use
-  `@prisma/adapter-pg`.
+- `@prisma/adapter-pg` is the driver adapter Prisma 7 needs to connect to PostgreSQL.
 - `prisma` is the CLI that runs migrations and generates the client. Pin it to 7: `prisma@latest` is Prisma 8,
   which can't read a Prisma 7 config.
 - `@opensearch-project/opensearch` is the search client you pass to arocapi.

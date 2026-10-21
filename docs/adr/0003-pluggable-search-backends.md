@@ -40,8 +40,10 @@ itself honestly.
   and `remove(ids)`. A required `search` option takes it. The `opensearch`,
   `queryBuilderClass` and `queryBuilderOptions` options and the
   `OpensearchQueryBuilder` export are removed.
-- Reference backends are exported factories, `OpenSearchBackend({...})` and
-  `PostgresBackend({...})`, like `LicenceAccess`. They are customised through
+- Reference backends are exported factories, `OpenSearchBackend({...})` from
+  `arocapi/opensearch` and `PostgresBackend({...})` from `arocapi/postgres`, so
+  `@opensearch-project/opensearch` is an optional peer dependency that only
+  OpenSearch consumers install. They are customised through
   options only, with no subclassing or protected hooks, so their internals can
   change without a major release. A consumer's own backend is an object
   literal typed `SearchBackend`.
@@ -165,12 +167,16 @@ searchVisibilityFilter: async ({ request }) => {
   an entity and its search document commit together.
 - `OpenSearchBackend` builds its mapping from the field declarations through
   the exported `createIndex()`, which errors on an existing index whose
-  mapping differs. It takes an `indexName` option, defaulting to `entities`.
+  mapping differs. It takes an `indexName` option, defaulting to `entities`,
+  and a `refresh` option for its bulk writes, defaulting to `false`.
 - The Postgres backend's search table, `EntitySearch`, ships in the shared
   `prisma/models` with a relation to `Entity` that cascades on delete. It
-  holds weighted and per-field tsvectors behind GIN, a point behind GiST and a
-  stored geohash, and needs no extensions. The backend queries it with raw
-  SQL, since Prisma can't express full-text search.
+  holds the values as JSON, a weighted tsvector over the basic fields and
+  one tsvector over every text field whose lexemes are prefixed with the
+  field name, so each field is matchable on its own and phrases stay within
+  a field, all three behind GIN. It also holds a point behind GiST and a stored
+  geohash, and needs no extensions. The backend queries it with raw SQL,
+  since Prisma can't express full-text search.
 
 ### The database
 

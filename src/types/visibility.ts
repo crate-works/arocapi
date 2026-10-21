@@ -1,5 +1,6 @@
-import type { QueryContainer } from '@opensearch-project/opensearch/api/_types/_common.query_dsl.js';
 import type { Prisma } from '../generated/prisma/client.js';
+import type { FieldDeclarations } from '../search/fields.js';
+import type { SearchVisibilityWhere } from '../search/visibility.js';
 import type { RequestContext } from './context.js';
 
 /**
@@ -12,7 +13,9 @@ export type EntityVisibilityFilter = (
 
 /**
  * Search visibility filter - required
- * Returns an OpenSearch query matching the entities visible to this request
+ * Returns a condition over `id` and the search backend's declared fields matching the entities visible to this request
  * Must agree with the entity visibility filter
  */
-export type SearchVisibilityFilter = (context: RequestContext) => Promise<QueryContainer> | QueryContainer;
+export type SearchVisibilityFilter<Fields extends FieldDeclarations = FieldDeclarations> = (
+  context: RequestContext,
+) => Promise<SearchVisibilityWhere<Fields>> | SearchVisibilityWhere<Fields>;

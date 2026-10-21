@@ -1,5 +1,4 @@
 import sensible from '@fastify/sensible';
-import type { Client } from '@opensearch-project/opensearch';
 import type { FastifyPluginAsync } from 'fastify';
 import type { PrismaClient } from './generated/prisma/client.js';
 import capabilities from './routes/capabilities.js';
@@ -9,16 +8,39 @@ import file from './routes/file.js';
 import files from './routes/files.js';
 import metadata from './routes/metadata.js';
 import search from './routes/search.js';
+import type { SearchBackend } from './search/backend.js';
+import type { SearchVisibilityWhere } from './search/visibility.js';
 import type { AccessFunction } from './types/access.js';
-import type { IsAuthenticated } from './types/context.js';
+import type { IsAuthenticated, RequestContext } from './types/context.js';
 import type { FileHandler, RoCrateHandler } from './types/fileHandlers.js';
 import type { EntityTransformer, FileTransformer } from './types/transformers.js';
-import type { EntityVisibilityFilter, SearchVisibilityFilter } from './types/visibility.js';
+import type { EntityVisibilityFilter } from './types/visibility.js';
 import { notFoundHandler } from './utils/errors.js';
-import type { FacetCapability, FilterCapability, QueryBuilderOptions, SearchCapability } from './utils/queryBuilder.js';
-import { OpensearchQueryBuilder } from './utils/queryBuilder.js';
 import { setupValidation } from './utils/validation.js';
 
+export type {
+  AdvancedQuery,
+  BackendSearchCapability,
+  BoundingBox,
+  FacetBucket,
+  RangeBound,
+  RangeFilter,
+  SearchBackend,
+  SearchExtra,
+  SearchRequest,
+  SearchResult,
+} from './search/backend.js';
+export { SearchQueryError } from './search/backend.js';
+export type {
+  FieldDeclaration,
+  FieldDeclarations,
+  FieldType,
+  GeoPoint,
+  SearchDocument,
+} from './search/fields.js';
+export { capabilitiesFromFields } from './search/fields.js';
+export type { SearchVisibilityWhere, VisibilityCondition } from './search/visibility.js';
+export { checkSearchVisibility } from './search/visibility.js';
 export type {
   AuthorisedEntity,
   AuthorisedFile,
@@ -58,8 +80,6 @@ export {
   notFoundHandler,
 } from './utils/errors.js';
 export { AllVisibleEntityFilter, AllVisibleSearchFilter } from './utils/visibility.js';
-export type { FacetCapability, FilterCapability, QueryBuilderOptions, SearchCapability };
-export { OpensearchQueryBuilder };
 
 const DOCS_URL = 'https://arocapi.crate-works.org';
 
@@ -83,24 +103,21 @@ export type ArocapiPrismaClient = { entity: PrismaDelegate; file: PrismaDelegate
 
 export type Options = {
   prisma: ArocapiPrismaClient;
-  opensearch: Client;
-  queryBuilderClass?: typeof OpensearchQueryBuilder;
-  queryBuilderOptions?: QueryBuilderOptions;
+  search: SearchBackend;
   access: AccessFunction;
   entityTransformers?: EntityTransformer[];
   fileTransformers?: FileTransformer[];
   fileHandler: FileHandler;
   roCrateHandler: RoCrateHandler;
   entityVisibilityFilter: EntityVisibilityFilter;
-  searchVisibilityFilter: SearchVisibilityFilter;
+  /** A `SearchVisibilityFilter<typeof fields>` for the search backend's declared fields */
+  searchVisibilityFilter: (context: RequestContext) => Promise<SearchVisibilityWhere> | SearchVisibilityWhere;
   isAuthenticated?: IsAuthenticated;
   promptLoginForHidden?: boolean;
 };
 const app: FastifyPluginAsync<Options> = async (fastify, options) => {
   const {
-    opensearch,
-    queryBuilderClass,
-    queryBuilderOptions,
+    search: searchBackend,
     access,
     entityTransformers,
     fileTransformers,
@@ -123,8 +140,8 @@ const app: FastifyPluginAsync<Options> = async (fastify, options) => {
   // Consumers generate their own client, whose delegate generics never match ours; the routes need the full type
   const prisma = options.prisma as PrismaClient;
 
-  if (!opensearch) {
-    throw new Error('OpenSearch client is required');
+  if (!searchBackend) {
+    throw new Error('search is required');
   }
 
   for (const [removed, { replacement, docs }] of Object.entries(REMOVED_OPTIONS)) {
@@ -168,9 +185,7 @@ const app: FastifyPluginAsync<Options> = async (fastify, options) => {
     fastify.setNotFoundHandler(notFoundHandler);
   }
 
-  const queryBuilder = new (queryBuilderClass ?? OpensearchQueryBuilder)(queryBuilderOptions);
-
-  fastify.register(capabilities, { queryBuilder });
+  fastify.register(capabilities, { search: searchBackend });
   fastify.register(entities, { prisma, access, entityTransformers, entityVisibilityFilter });
   fastify.register(entity, { prisma, access, entityTransformers, entityVisibilityFilter, refusal });
   fastify.register(files, { prisma, access, fileTransformers, entityVisibilityFilter });
@@ -178,10 +193,9 @@ const app: FastifyPluginAsync<Options> = async (fastify, options) => {
   fastify.register(metadata, { prisma, roCrateHandler, access, entityVisibilityFilter, refusal });
   fastify.register(search, {
     prisma,
-    opensearch,
+    search: searchBackend,
     access,
     entityTransformers,
-    queryBuilder,
     entityVisibilityFilter,
     searchVisibilityFilter,
   });

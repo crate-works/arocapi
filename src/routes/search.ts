@@ -1,60 +1,86 @@
-import type { Client } from '@opensearch-project/opensearch';
-import type { MultiBucketAggregateBaseFiltersBucket } from '@opensearch-project/opensearch/api/_types/_common.aggregations.js';
-import type { Search_Request, Search_Response } from '@opensearch-project/opensearch/api/index.js';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { PrismaClient } from '../generated/prisma/client.js';
+import { normaliseQuery } from '../search/advanced.js';
+import {
+  type SearchBackend,
+  type SearchExtra,
+  SearchQueryError,
+  type SearchRequest,
+  type SearchResult,
+} from '../search/backend.js';
+import {
+  boundingBoxSchema,
+  filterValueSchema,
+  geoViolations,
+  splitFilters,
+  type Violation,
+} from '../search/requestFilters.js';
 import { applyTransformers, authoriseEntities } from '../transformers/default.js';
-import type { AccessFunction } from '../types/access.js';
+import type { AccessFunction, AccessInfo } from '../types/access.js';
 import type { EntityTransformer } from '../types/transformers.js';
 import type { EntityVisibilityFilter, SearchVisibilityFilter } from '../types/visibility.js';
-import { createError, ERROR_CODES } from '../utils/errors.js';
-import type { OpensearchQueryBuilder } from '../utils/queryBuilder.js';
-
-const boundingBoxSchema = z.object({
-  topRight: z.object({
-    lat: z.number(),
-    lng: z.number(),
-  }),
-  bottomLeft: z.object({
-    lat: z.number(),
-    lng: z.number(),
-  }),
-});
+import { createError, createValidationError, ERROR_CODES } from '../utils/errors.js';
 
 const searchParamsSchema = z.object({
   searchType: z.enum(['basic', 'advanced']).default('basic'),
   query: z.string(),
-  filters: z.record(z.string(), z.array(z.string())).optional(),
+  filters: z.record(z.string(), filterValueSchema).default({}),
   boundingBox: boundingBoxSchema.optional(),
   geohashPrecision: z.number().int().min(1).max(12).optional(),
   limit: z.number().int().min(1).max(1000).default(100),
   offset: z.number().int().min(0).default(0),
-  sort: z.enum(['id', 'name', 'createdAt', 'updatedAt', 'relevance']).default('relevance'),
+  sort: z.string().default('relevance'),
   order: z.enum(['asc', 'desc']).default('asc'),
 });
 
+type SearchParams = z.infer<typeof searchParamsSchema>;
+
 type SearchRouteOptions = {
   prisma: PrismaClient;
-  opensearch: Client;
+  search: SearchBackend;
   access: AccessFunction;
   entityTransformers?: EntityTransformer[];
-  queryBuilder: OpensearchQueryBuilder;
   entityVisibilityFilter: EntityVisibilityFilter;
   searchVisibilityFilter: SearchVisibilityFilter;
+};
+
+// Highlights quote the Record's text, so a hit denied either part keeps only its score
+const visibleExtra = (searchExtra: SearchExtra | undefined, { metadata, content }: AccessInfo) => {
+  if (!searchExtra || (metadata && content)) {
+    return searchExtra;
+  }
+
+  const { highlight: _, ...rest } = searchExtra;
+
+  return Object.keys(rest).length > 0 ? rest : undefined;
 };
 
 const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => {
   const {
     prisma,
-    opensearch,
+    search: backend,
     access,
     entityTransformers = [],
-    queryBuilder,
     entityVisibilityFilter,
     searchVisibilityFilter,
   } = opts;
+  const { capabilities } = backend;
+  const noFacets = Object.fromEntries(Object.keys(capabilities.facets).map((name) => [name, []]));
+
+  const violations = ({ searchType, sort }: SearchParams) => {
+    const found: Violation[] = [];
+    if (!Object.hasOwn(capabilities.searchTypes, searchType)) {
+      found.push({ field: '/searchType', message: `${searchType} search isn't supported`, value: searchType });
+    }
+    if (sort !== 'relevance' && !Object.hasOwn(capabilities.sorts, sort)) {
+      found.push({ field: '/sort', message: `${sort} isn't a declared sort`, value: sort });
+    }
+
+    return found;
+  };
+
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/search',
     {
@@ -63,60 +89,62 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
       },
     },
     async (request, reply) => {
-      const { searchType, query, filters, boundingBox, geohashPrecision, limit, offset, sort, order } = request.body;
+      const { filters, violations: filterProblems } = splitFilters(capabilities.filters, request.body.filters);
+      const problems = [
+        ...violations(request.body),
+        ...filterProblems,
+        ...geoViolations(capabilities.geo, request.body),
+      ];
+      if (problems.length > 0) {
+        return reply.code(400).send(createValidationError('The request parameters are invalid', problems));
+      }
+
+      const { searchType, query, filters: _, boundingBox, geohashPrecision, ...paging } = request.body;
+
+      const searchQuery = normaliseQuery(searchType, query, capabilities.searchTypes.advanced?.fields ?? {});
+      if ('problem' in searchQuery) {
+        const { problem } = searchQuery;
+
+        return reply.code(422).send(createValidationError(problem, [{ field: 'query', message: problem }]));
+      }
 
       const context = { request, fastify };
-      const [visibilityWhere, visibilityQuery] = await Promise.all([
-        entityVisibilityFilter(context),
-        searchVisibilityFilter(context),
-      ]);
+      // Only the database query needs it, so the search needn't wait; awaited before any reply so its error wins
+      const visibilityWhere = Promise.resolve(entityVisibilityFilter(context));
+      visibilityWhere.catch(() => undefined);
+      const visibility = await searchVisibilityFilter(context);
 
-      const opensearchQuery: Search_Request = {
-        index: 'entities',
-        body: {
-          query: {
-            bool: {
-              must: [queryBuilder.buildQuery(searchType, query, filters, boundingBox)],
-              filter: [visibilityQuery],
-            },
-          },
-          aggs: queryBuilder.buildAggregations(geohashPrecision, boundingBox),
-          highlight: {
-            fields: {
-              name: {},
-              description: {},
-            },
-          },
-          sort: queryBuilder.buildSort(sort, order),
-          from: offset,
-          size: limit,
-        },
+      const searchRequest: SearchRequest = {
+        ...searchQuery,
+        filters,
+        ...(boundingBox && { boundingBox }),
+        ...(geohashPrecision !== undefined && { geohashPrecision }),
+        ...paging,
+        visibility,
       };
-      fastify.log.debug(opensearchQuery);
-      let response: Search_Response;
+
+      const start = performance.now();
+      let result: SearchResult;
       try {
-        response = await opensearch.search(opensearchQuery);
+        result = await backend.search(searchRequest, context);
       } catch (error) {
-        const { statusCode, message } = error as Error & { statusCode?: number };
-        // OpenSearch returns 400 for malformed queries (e.g. invalid query_string syntax)
-        if (statusCode !== 400) {
+        await visibilityWhere.catch((visibilityError: unknown) => {
+          fastify.log.error({ err: error }, 'Search backend failed');
+          throw visibilityError;
+        });
+        if (!(error instanceof SearchQueryError)) {
           throw error;
         }
 
-        fastify.log.warn(`Invalid search query: ${message}`);
+        fastify.log.warn(`Invalid search query: ${error.message}`);
 
-        return reply.code(422).send(createError(ERROR_CODES.VALIDATION_ERROR, message));
+        return reply.code(422).send(createError(ERROR_CODES.VALIDATION_ERROR, error.message));
       }
-
-      if (!response.body?.hits?.hits) {
-        throw new Error('Invalid search response: missing hits data');
-      }
-
-      const entityIds = response.body.hits.hits.map((hit) => hit._source?.id as string | undefined).filter(Boolean);
+      const searchTime = Math.round(performance.now() - start);
 
       const dbEntities = await prisma.entity.findMany({
         where: {
-          AND: [{ id: { in: entityIds } }, visibilityWhere],
+          AND: [{ id: { in: result.hits.map(({ id }) => id) } }, await visibilityWhere],
         },
         include: { file: { select: { id: true } } },
       });
@@ -125,70 +153,28 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
       const entityMap = new Map(authorisedEntities.map((entity) => [entity.id, entity]));
 
       const entities = await Promise.all(
-        response.body.hits.hits.map(async (hit) => {
-          if (!hit._source?.id) {
-            throw new Error('Missing id in search hit');
-          }
-
-          const authorisedEntity = entityMap.get(hit._source.id);
+        result.hits.map(async ({ id, searchExtra }) => {
+          const authorisedEntity = entityMap.get(id);
           if (!authorisedEntity) {
-            fastify.log.warn(`Entity ${hit._source.id} found in OpenSearch but missing or not visible in database`);
+            fastify.log.warn(`Entity ${id} found by the search backend but missing or not visible in database`);
 
             return null;
           }
 
-          const result = await applyTransformers(authorisedEntity, entityTransformers, context);
+          const transformed = await applyTransformers(authorisedEntity, entityTransformers, context);
+          const extra = visibleExtra(searchExtra, authorisedEntity.access);
 
-          // Add search-specific metadata
-          return {
-            ...(result as Record<string, unknown>),
-            searchExtra: {
-              score: hit._score,
-              highlight: hit.highlight,
-            },
-          };
+          return extra === undefined ? transformed : { ...(transformed as object), searchExtra: extra };
         }),
-      ).then((results) => results.filter(Boolean));
+      ).then((results) => results.filter((entity) => entity !== null));
 
-      const facets: Record<string, Array<{ name: string; count: number }>> = {};
-      if (response.body.aggregations) {
-        Object.keys(response.body.aggregations).forEach((key) => {
-          if (key !== 'geohash_grid') {
-            const agg = response.body.aggregations?.[key] as MultiBucketAggregateBaseFiltersBucket;
-            if (agg?.buckets && Array.isArray(agg.buckets)) {
-              facets[key] = agg.buckets.map((bucket) => ({
-                name: bucket.key,
-                count: bucket.doc_count,
-              }));
-            }
-          }
-        });
-      }
-
-      let geohashGrid: Record<string, number> | undefined;
-      if (response.body.aggregations?.geohash_grid) {
-        const geohashAgg = response.body.aggregations.geohash_grid as MultiBucketAggregateBaseFiltersBucket;
-        if (geohashAgg?.buckets && Array.isArray(geohashAgg.buckets)) {
-          geohashAgg.buckets.forEach((bucket) => {
-            geohashGrid ||= {};
-            geohashGrid[bucket.key] = bucket.doc_count;
-          });
-        }
-      }
-
-      /* v8 ignore next 2 -- Not sure how to force opensearch to hit the other path -- @preserve */
-      const total =
-        typeof response.body.hits.total === 'number' ? response.body.hits.total : response.body.hits.total?.value || 0;
-
-      const result = {
-        total,
-        searchTime: response.body.took,
+      return {
+        total: result.total,
+        searchTime,
         entities,
-        facets: Object.keys(facets).length > 0 ? facets : undefined,
-        geohashGrid,
+        facets: { ...noFacets, ...result.facets },
+        ...(result.geohashGrid && { geohashGrid: result.geohashGrid }),
       };
-
-      return result;
     },
   );
 };

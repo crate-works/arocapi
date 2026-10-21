@@ -16,8 +16,8 @@ own app, and it adds routes for listing, searching and reading the
 It is built for long-term archival repositories that follow the [PILARS](/introduction/pilars/) protocols. arocapi
 owns the API and leaves the decisions that differ between repositories to you:
 
-- **Where things live.** Entities are indexed in a database through Prisma and searched with
-  [OpenSearch](/strategies/search/). You supply handlers that fetch RO-Crate metadata and file bytes from
+- **Where things live.** Entities are indexed in a database through Prisma and searched through a
+  [search backend](/strategies/search/) such as OpenSearch. You supply handlers that fetch RO-Crate metadata and file bytes from
   [your storage](/strategies/storage/). For now you fill the database and index yourself; support for the RO-Crate
   API's deposit routes, which will let you load RO-Crates through the API, is coming soon.
 - **Who sees what.** Visibility filters decide which entities exist for a request. An access function decides

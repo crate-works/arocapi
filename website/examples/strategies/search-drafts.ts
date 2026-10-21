@@ -1,5 +1,9 @@
 import type { SearchVisibilityFilter } from 'arocapi';
 
-export const searchVisibilityFilter: SearchVisibilityFilter = () => ({
-  bool: { must_not: { term: { 'meta.draft': true } } },
-});
+const fields = {
+  name: { type: 'text' },
+  draft: { type: 'boolean' },
+} as const;
+
+// Also matches entities with no draft flag
+export const searchVisibilityFilter: SearchVisibilityFilter<typeof fields> = () => ({ draft: { not: true } });

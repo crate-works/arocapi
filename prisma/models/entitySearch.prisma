@@ -1,0 +1,21 @@
+/// One entity's search document, written by PostgresBackend through raw SQL
+model EntitySearch {
+  id      String                    @id
+
+  /// The document's declared values by field name, with dates as UTC ISO strings and without the geo field
+  values  Json                      @default("{}")
+  /// Basic search text, weighted A–D from field weights 4–1
+  basic   Unsupported("tsvector")
+  /// Every text field's lexemes, each prefixed with `<field>.`
+  text    Unsupported("tsvector")
+  point   Unsupported("point")?
+  geohash String?
+
+  entity  Entity                    @relation(fields: [id], references: [id], onDelete: Cascade)
+
+  @@index([values(ops: JsonbPathOps)], type: Gin)
+  @@index([basic], type: Gin)
+  @@index([text], type: Gin)
+  @@index([point], type: Gist)
+  @@map("entity_search")
+}

@@ -5,7 +5,9 @@
   "description": "An RO-Crate API",
   "main": "dist/app.js",
   "exports": {
-    ".": "./dist/app.js"
+    ".": "./dist/app.js",
+    "./opensearch": "./dist/search/opensearch/opensearch.js",
+    "./postgres": "./dist/search/postgres/postgres.js"
   },
   "keywords": [
     "rocrate",
@@ -15,11 +17,7 @@
   "license": "ISC",
   "dependencies": {
     "@fastify/sensible": "^6.0.7",
-    "@opensearch-project/opensearch": "^3.9.0",
-    "@prisma/config": "^7.10.1",
     "content-disposition": "^3.0.0",
-    "dotenv": "^18.0.8",
-    "fastify": "^5.12.5",
     "fastify-type-provider-zod": "^7.0.0",
     "zod": "^4.6.7"
   },
@@ -27,8 +25,10 @@
     "@biomejs/biome": "^2.5.15",
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
-    "@prisma/adapter-mariadb": "^7.10.1",
+    "@opensearch-project/opensearch": "^3.9.0",
+    "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
+    "@prisma/config": "^7.10.1",
     "@semantic-release/changelog": "^7.0.0",
     "@semantic-release/git": "^11.0.1",
     "@total-typescript/ts-reset": "^0.6.1",
@@ -37,6 +37,8 @@
     "@vitest/ui": "^5.0.5",
     "concurrently": "^10.0.6",
     "conventional-changelog-conventionalcommits": "^9.3.1",
+    "dotenv": "^18.0.8",
+    "fastify": "^5.12.7",
     "fastify-tsconfig": "^3.0.0",
     "knip": "^6.42.0",
     "lefthook": "^2.2.2",
@@ -48,19 +50,26 @@
     "vitest-mock-extended": "^5.1.1"
   },
   "peerDependencies": {
-    "@prisma/client": "^7.10.0"
+    "@opensearch-project/opensearch": "^3.9.0",
+    "@prisma/client": "^7.10.0",
+    "fastify": "^5.12.7"
   },
   "files": [
     "src",
     "!src/generated",
     "!src/index.dev.ts",
+    "!src/reset.d.ts",
+    "!src/**/*.test.ts",
+    "!src/test/**",
+    "!src/**/__snapshots__/**",
     "dist",
     "!dist/generated/**/*.js",
     "!dist/generated/**/*.js.map",
     "!dist/index.dev.*",
+    "!dist/**/*.test.*",
+    "!dist/test/**",
     "README.md",
-    "prisma/models",
-    "prisma.config.ts"
+    "prisma/models"
   ],
   "scripts": {
     "build": "tsc",
@@ -68,8 +77,8 @@
     "dev": "pnpm run dev:clean && pnpm run build && concurrently -k -p \"[{name}]\" -n \"TypeScript,App\" -c \"yellow.bold,cyan.bold\" \"pnpm:dev:start\" \"pnpm:watch\" ",
     "dev:start": "node --watch --env-file=.env dist/index.dev.js",
     "dev:clean": "rm -rf dist",
-    "dbconsole": "docker compose exec db mysql --password=password catalog",
-    "load-test-data": "tsx src/scripts/loadEntities.ts",
+    "dbconsole": "docker compose exec db psql -U postgres catalog",
+    "load-test-data": "tsx scripts/loadEntities.ts",
     "lint:biome": "biome check",
     "lint:types": "tsc --noEmit",
     "lint:examples": "tsc --emitDeclarationOnly && tsc -p website/examples",
@@ -94,5 +103,13 @@
     "registry": "https://registry.npmjs.org/",
     "provenance": true
   },
-  "packageManager": "pnpm@12.11.2"
+  "packageManager": "pnpm@12.11.2",
+  "peerDependenciesMeta": {
+    "@opensearch-project/opensearch": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
 }

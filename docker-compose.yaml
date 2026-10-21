@@ -7,15 +7,15 @@ services:
       - ./docker/oni-config.json:/configuration.json
 
   db:
-    image: mysql:8
+    image: postgres:18
     restart: always
     ports:
-      - 3306:3306
+      - 5432:5432
     volumes:
-      - db-data:/var/lib/mysql
+      - pg-data:/var/lib/postgresql
     environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: catalog
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: catalog
 
   opensearch:
     image: opensearchproject/opensearch:3
@@ -42,5 +42,5 @@ services:
       - 9200
 
 volumes:
-  db-data:
+  pg-data:
   opensearch-data:

@@ -2,20 +2,25 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AllVisibleSearchFilter, LicenceAccess } from '../app.js';
 import { Prisma } from '../generated/prisma/client.js';
+import { OpenSearchBackend } from '../search/opensearch/opensearch.js';
+import { PostgresBackend } from '../search/postgres/postgres.js';
 import type { AuthorisedEntity, AuthorisedFile } from '../transformers/default.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
+import { describeSearchBackendContract } from './helpers/searchBackendContract.js';
 import {
   buildTestApp,
   cleanupTestData,
   getTestApp,
+  getTestOpenSearch,
+  getTestPrisma,
   seedTestData,
   setupIntegrationTests,
   teardownIntegrationTests,
 } from './integration.setup.js';
 
-describe('Integration Tests', () => {
+describe.each(['OpenSearchBackend', 'PostgresBackend'] as const)('Integration Tests with %s', (backend) => {
   beforeAll(async () => {
-    await setupIntegrationTests();
+    await setupIntegrationTests(backend);
   });
 
   afterAll(async () => {
@@ -339,9 +344,13 @@ describe('Integration Tests', () => {
       const body = JSON.parse(response.body) as { total: number; entities: AuthorisedEntity[] };
 
       expect(response.statusCode).toBe(200);
-      expect(body.entities[0].name).toBe('test-audio.wav');
-      expect(body.entities[1].name).toBe('Test Person');
-      expect(body.entities[2].name).toBe('Test Object');
+      expect(body.entities.map((entity) => entity.name)).toEqual([
+        'Test Person',
+        'Test Object',
+        'Test Collection',
+        'test-audio.wav',
+        'collection-metadata.csv',
+      ]);
     });
   });
 
@@ -489,7 +498,7 @@ describe('Integration Tests', () => {
       expect(body.entities.length).toBeLessThanOrEqual(1);
     });
 
-    it('should sort entities by id', async () => {
+    it('should sort entities by name', async () => {
       const app = getTestApp();
 
       const response = await app.inject({
@@ -497,7 +506,7 @@ describe('Integration Tests', () => {
         url: '/search',
         payload: {
           query: 'test',
-          sort: 'id',
+          sort: 'name',
         },
       });
       const body = JSON.parse(response.body) as { total: number; entities: AuthorisedEntity[] };
@@ -593,9 +602,9 @@ describe('Integration Tests', () => {
   describe('Visibility', () => {
     const entityUrl = (n: number) => encodeURIComponent(`http://example.com/entity/${n}`);
     const hideDrafts = {
-      OR: [{ meta: { path: '$.draft', equals: Prisma.AnyNull } }, { meta: { path: '$.draft', not: true } }],
+      OR: [{ meta: { path: ['draft'], equals: Prisma.AnyNull } }, { meta: { path: ['draft'], not: true } }],
     };
-    const hideDraftsSearch = { bool: { must_not: { term: { 'meta.draft': true } } } };
+    const hideDraftsSearch = { draft: { not: true } };
     const stubHandlers = {
       fileHandler: {
         get: async () => ({ type: 'redirect' as const, url: 'https://files.example.com/file' }),
@@ -607,9 +616,6 @@ describe('Integration Tests', () => {
       },
     };
 
-    // Declared separately: the OpenSearch typings omit `field` from terms aggregations
-    const entityTypeFacet = { entityType: { terms: { field: 'entityType', size: 20 } } };
-
     let app: FastifyInstance;
 
     beforeAll(async () => {
@@ -619,7 +625,6 @@ describe('Integration Tests', () => {
         searchVisibilityFilter: () => hideDraftsSearch,
         isAuthenticated: ({ request }) => request.headers['x-user'] !== undefined,
         promptLoginForHidden: true,
-        queryBuilderOptions: { aggregations: entityTypeFacet },
       });
     });
 
@@ -762,7 +767,7 @@ describe('Integration Tests', () => {
         const response = await app.inject({
           method: 'POST',
           url: '/search',
-          payload: { query: '', sort: 'id', limit: 2, offset: 2 },
+          payload: { query: '', sort: 'name', limit: 2, offset: 2 },
         });
         const body = JSON.parse(response.body) as { total: number; entities: AuthorisedEntity[] };
 
@@ -1056,4 +1061,27 @@ describe('Integration Tests', () => {
       });
     });
   });
+
+  if (backend === 'OpenSearchBackend') {
+    describeSearchBackendContract(backend, {
+      create: (fields) =>
+        OpenSearchBackend({
+          client: getTestOpenSearch(),
+          fields,
+          indexName: 'search-contract-test',
+          refresh: true,
+        }),
+      prepare: async (search) => {
+        await getTestOpenSearch().indices.delete({ index: 'search-contract-test', ignore_unavailable: true });
+        await search.createIndex();
+      },
+    });
+  } else {
+    describeSearchBackendContract(backend, {
+      create: (fields) => PostgresBackend({ prisma: getTestPrisma(), fields }),
+      prepare: async () => {
+        await getTestPrisma().entitySearch.deleteMany({});
+      },
+    });
+  }
 });

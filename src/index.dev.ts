@@ -1,7 +1,7 @@
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { Client } from '@opensearch-project/opensearch';
-import { PrismaMariaDb } from '@prisma/adapter-mariadb';
+import { PrismaPg } from '@prisma/adapter-pg';
 import Fastify from 'fastify';
 
 import arocapi, {
@@ -9,22 +9,18 @@ import arocapi, {
   AllVisibleEntityFilter,
   AllVisibleSearchFilter,
   type EntityTransformer,
+  type FieldDeclarations,
   type FileHandler,
   type RoCrateHandler,
 } from './app.js';
 import type { Entity, File } from './generated/prisma/client.js';
 import { PrismaClient } from './generated/prisma/client.js';
+import { OpenSearchBackend } from './search/opensearch/opensearch.js';
 
-const adapter = new PrismaMariaDb({
-  host: 'localhost',
-  user: 'root',
-  password: 'password',
-  database: 'catalog',
-  port: 3306,
-  connectionLimit: 5,
-  // NOTE: This is required when using the default MariaDB server configuration with SSL disabled. In production, you should properly configure SSL and remove this option.
-  allowPublicKeyRetrieval: true,
-});
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL environment variable is not set');
+}
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
 if (!process.env.OPENSEARCH_URL) {
@@ -32,6 +28,17 @@ if (!process.env.OPENSEARCH_URL) {
 }
 const opensearchUrl = process.env.OPENSEARCH_URL;
 const opensearch = new Client({ node: opensearchUrl });
+
+// Keep in step with example/data/seed.ts and scripts/loadEntities.ts
+const fields = {
+  name: { type: 'text', weight: 2, sort: true, label: 'Name' },
+  description: { type: 'text' },
+  entityType: { type: 'keyword', facet: true, label: 'Type' },
+  inLanguage: { type: 'keyword', facet: true, label: 'Language' },
+  mediaType: { type: 'keyword', facet: true, label: 'Media type' },
+  communicationMode: { type: 'keyword', facet: true, label: 'Communication mode' },
+  location: { type: 'geo' },
+} satisfies FieldDeclarations;
 
 const fileHandler: FileHandler = {
   head: async (file: File) => {
@@ -182,7 +189,7 @@ const fastify = Fastify({
 });
 fastify.register(arocapi, {
   prisma,
-  opensearch,
+  search: OpenSearchBackend({ client: opensearch, fields }),
   fileHandler,
   roCrateHandler,
   access: AllPublicAccess,

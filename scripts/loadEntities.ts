@@ -1,8 +1,11 @@
 import 'dotenv/config';
 import { Client } from '@opensearch-project/opensearch';
-import { PrismaClient } from '../generated/prisma/client.js';
+import { PrismaPg } from '@prisma/adapter-pg';
+import type { FieldDeclarations } from '../src/app.js';
+import { PrismaClient } from '../src/generated/prisma/client.js';
+import { OpenSearchBackend } from '../src/search/opensearch/opensearch.js';
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
 
 if (!process.env.OPENSEARCH_URL) {
   throw new Error('OPENSEARCH_URL environment variable is not set');
@@ -14,6 +17,18 @@ const opensearch = new Client({
 });
 
 const INDEX_NAME = 'entities';
+
+// Keep in step with src/index.dev.ts
+const fields = {
+  name: { type: 'text', weight: 2, sort: true, label: 'Name' },
+  description: { type: 'text' },
+  entityType: { type: 'keyword', facet: true, label: 'Type' },
+  inLanguage: { type: 'keyword', facet: true, label: 'Language' },
+  mediaType: { type: 'keyword', facet: true, label: 'Media type' },
+  communicationMode: { type: 'keyword', facet: true, label: 'Communication mode' },
+  location: { type: 'geo' },
+} satisfies FieldDeclarations;
+const search = OpenSearchBackend({ client: opensearch, fields, indexName: INDEX_NAME });
 
 const BATCH_SIZE = 100;
 const TOTAL_RECORDS = 1000;
@@ -61,82 +76,14 @@ const generateDummyData = () => {
     inLanguage: languages[Math.floor(Math.random() * languages.length)],
     mediaType: mediaTypes[Math.floor(Math.random() * mediaTypes.length)],
     communicationMode: communicationModes[Math.floor(Math.random() * communicationModes.length)],
-    location: {
-      lat,
-      lon: lng,
-    },
+    location: { lat, lng },
   };
 };
 
 const createIndex = async () => {
-  try {
-    const indexExists = await opensearch.indices.exists({ index: INDEX_NAME });
-
-    if (indexExists.body) {
-      console.log(`Index ${INDEX_NAME} already exists, deleting...`);
-      await opensearch.indices.delete({ index: INDEX_NAME });
-    }
-
-    console.log(`Creating index ${INDEX_NAME}...`);
-    await opensearch.indices.create({
-      index: INDEX_NAME,
-      body: {
-        mappings: {
-          properties: {
-            rocrateId: { type: 'keyword' },
-            name: {
-              type: 'text',
-              fields: {
-                keyword: { type: 'keyword' },
-              },
-            },
-            description: { type: 'text' },
-            conformsTo: { type: 'keyword' },
-            entityType: { type: 'keyword' },
-            memberOf: { type: 'keyword' },
-            root: { type: 'keyword' },
-            inLanguage: { type: 'keyword' },
-            mediaType: { type: 'keyword' },
-            communicationMode: { type: 'keyword' },
-            location: { type: 'geo_point' },
-            createdAt: { type: 'date' },
-            updatedAt: { type: 'date' },
-          },
-        },
-      },
-    });
-
-    console.log('Index created successfully');
-  } catch (error) {
-    console.error('Error creating index:', error);
-    throw error;
-  }
-};
-
-// Index entity to OpenSearch
-// biome-ignore lint/suspicious/noExplicitAny: FIXME
-const indexEntity = async (entity: any, dummyData: any) => {
-  const document = {
-    rocrateId: entity.id,
-    name: entity.name,
-    description: entity.description,
-    conformsTo: entity.conformsTo,
-    entityType: entity.entityType,
-    memberOf: entity.memberOf || null,
-    root: entity.root || null,
-    inLanguage: dummyData.inLanguage,
-    mediaType: dummyData.mediaType,
-    communicationMode: dummyData.communicationMode,
-    location: dummyData.location,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  await opensearch.index({
-    index: INDEX_NAME,
-    id: entity.id,
-    body: document,
-  });
+  console.log(`Recreating index ${INDEX_NAME}...`);
+  await opensearch.indices.delete({ index: INDEX_NAME, ignore_unavailable: true });
+  await search.createIndex();
 };
 
 const loadEntities = async (): Promise<void> => {
@@ -157,11 +104,9 @@ const loadEntities = async (): Promise<void> => {
       );
 
       for (const entity of data.entities) {
-        const dummyData = generateDummyData();
-
         await prisma.entity.create({
           data: {
-            rocrateId: entity.id,
+            id: entity.id,
             name: entity.name,
             description: entity.description,
             entityType: entity.entityType,
@@ -171,9 +116,17 @@ const loadEntities = async (): Promise<void> => {
             contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
           },
         });
-
-        await indexEntity(entity, dummyData);
       }
+
+      await search.index(
+        data.entities.map((entity) => ({
+          id: entity.id,
+          name: entity.name,
+          description: entity.description,
+          entityType: entity.entityType,
+          ...generateDummyData(),
+        })),
+      );
 
       processedCount += data.entities.length;
       console.log(`Processed ${processedCount}/${TOTAL_RECORDS} entities`);
@@ -183,8 +136,6 @@ const loadEntities = async (): Promise<void> => {
         break;
       }
     }
-
-    await opensearch.indices.refresh({ index: INDEX_NAME });
 
     console.log(`Successfully loaded ${processedCount} entities into database and OpenSearch`);
   } catch (error) {

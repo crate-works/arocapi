@@ -8,6 +8,7 @@ import arocapi, {
   type FileHandler,
   type RoCrateHandler,
 } from 'arocapi';
+import { OpenSearchBackend } from 'arocapi/opensearch';
 import Fastify from 'fastify';
 import type { File, Prisma, PrismaClient } from './generated/prisma/client.ts';
 
@@ -48,7 +49,7 @@ export const fastify = Fastify();
 
 fastify.register(arocapi, {
   prisma,
-  opensearch,
+  search: OpenSearchBackend({ client: opensearch, fields: { name: { type: 'text' } } }),
   access: AllPublicAccess,
   fileHandler,
   roCrateHandler,

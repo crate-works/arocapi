@@ -26,7 +26,7 @@ Every error from arocapi's routes has the same shape, `StandardErrorResponse`:
 | Code                    | Status | Returned when                                                         |
 | ----------------------- | ------ | --------------------------------------------------------------------- |
 | `VALIDATION_ERROR`      | 400    | Parameters fail validation; `details.violations` lists `{ field, message }`. |
-| `VALIDATION_ERROR`      | 422    | `POST /search` with `advanced` query syntax that OpenSearch rejects.  |
+| `VALIDATION_ERROR`      | 422    | `POST /search` with a [query arocapi refuses](/reference/search-queries/#errors) or the [search backend](/reference/search-backend/#errors) can't run. |
 | `UNAUTHORIZED`          | 401    | A Denied anonymous request, or a Hidden one with `promptLoginForHidden`. |
 | `FORBIDDEN`             | 403    | A Denied authenticated request, or any Denied request without `isAuthenticated`. |
 | `NOT_FOUND`             | 404    | A missing or Hidden entity or file, a handler returning `false`, or an unknown path under arocapi's `prefix`. |

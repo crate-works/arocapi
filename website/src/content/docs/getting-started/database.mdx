@@ -14,7 +14,7 @@ your own models if you have any, and arocapi's models linked in from the package
 Put the connection URLs in `.env`. The OpenSearch URL is for the [next page](/getting-started/opensearch/).
 
 ```sh title=".env"
-DATABASE_URL="mysql://root:password@localhost:3306/catalog"
+DATABASE_URL="postgresql://postgres:password@localhost:5432/catalog"
 OPENSEARCH_URL="http://localhost:9200"
 ```
 
@@ -44,7 +44,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
 }
 ```
 
