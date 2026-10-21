@@ -1,5 +1,5 @@
 import { join, type Sql, sqltag as sql } from '@prisma/client/runtime/client';
-import { SearchQueryError, type SearchRequest, type SearchResult } from './backend.js';
+import { SearchQueryError, type SearchRequest, type SearchResult } from '../backend.js';
 import {
   capabilitiesFromFields,
   type FieldDeclarations,
@@ -7,14 +7,14 @@ import {
   type SearchDocument,
   storeDocuments,
   toWire,
-} from './fields.js';
-import { advancedQueryFor } from './postgresAdvanced.js';
-import { valueBuckets, yearBuckets } from './postgresFacets.js';
-import { boundingBoxCondition, geohash, geohashGrid } from './postgresGeo.js';
-import { TEXT_SEARCH_CONFIG, typed } from './postgresValues.js';
-import { visibilityCondition } from './postgresVisibility.js';
-import { filtersCondition } from './requestFilters.js';
-import { checkSearchVisibility } from './visibility.js';
+} from '../fields.js';
+import { filtersCondition } from '../requestFilters.js';
+import { checkSearchVisibility } from '../visibility.js';
+import { advancedQueryFor } from './advanced.js';
+import { valueBuckets, yearBuckets } from './facets.js';
+import { boundingBoxCondition, geohash, geohashGrid } from './geo.js';
+import { TEXT_SEARCH_CONFIG, typed } from './values.js';
+import { visibilityCondition } from './visibility.js';
 
 /**
  * The Prisma client PostgresBackend needs: any Prisma 7 client on a schema that includes the arocapi models,

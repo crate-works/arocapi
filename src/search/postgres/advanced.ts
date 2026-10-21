@@ -1,8 +1,8 @@
 import { join, type Sql, sqltag as sql } from '@prisma/client/runtime/client';
-import { matchedDateSpan } from './advanced.js';
-import { type AdvancedQuery, SearchQueryError } from './backend.js';
-import type { FieldDeclarations, FieldType } from './fields.js';
-import { fieldValue, parameter, TEXT_SEARCH_CONFIG, valuesOf } from './postgresValues.js';
+import { matchedDateSpan } from '../advanced.js';
+import { type AdvancedQuery, SearchQueryError } from '../backend.js';
+import type { FieldDeclarations, FieldType } from '../fields.js';
+import { fieldValue, parameter, TEXT_SEARCH_CONFIG, valuesOf } from './values.js';
 
 // A tsquery's lexemes as text: single-quoted, with quotes doubled
 const LEXEME = "'((?:[^']|'')*)'";

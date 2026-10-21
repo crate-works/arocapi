@@ -29,7 +29,7 @@ This is a Fastify plugin that registers routes for entities, files, search, and 
 
 **Transformation pipeline**: Every entity/file response flows through: base transformer → library attaches `access` → optional entity/file transformers (chained). This is the core extension mechanism.
 
-**Search**: `/search` goes through the consumer's `search: SearchBackend` (`src/search/backend.ts`). The route validates the request against `backend.capabilities`, the backend returns ordered ids, an exact total and facets, and the route loads Records, attaches access and runs transformers. `OpenSearchBackend` (`src/search/opensearch.ts`) and `PostgresBackend` are the reference backends, configured by field declarations (`src/search/fields.ts`). See `docs/adr/0003-pluggable-search-backends.md`.
+**Search**: `/search` goes through the consumer's `search: SearchBackend` (`src/search/backend.ts`). The route validates the request against `backend.capabilities`, the backend returns ordered ids, an exact total and facets, and the route loads Records, attaches access and runs transformers. `OpenSearchBackend` (`src/search/opensearch/`) and `PostgresBackend` (`src/search/postgres/`) are the reference backends, configured by field declarations (`src/search/fields.ts`). See `docs/adr/0003-pluggable-search-backends.md`.
 
 **Prisma**: Uses folder-based schema (`prisma/` directory with `prisma.config.ts`). Models in `prisma/models/`. Generated client output goes to `src/generated/prisma/`.
 

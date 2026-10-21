@@ -1,7 +1,7 @@
 import type { QueryContainer } from '@opensearch-project/opensearch/api/_types/_common.query_dsl.js';
-import { matchedDateSpan } from './advanced.js';
-import type { AdvancedQuery } from './backend.js';
-import type { FieldDeclarations } from './fields.js';
+import { matchedDateSpan } from '../advanced.js';
+import type { AdvancedQuery } from '../backend.js';
+import type { FieldDeclarations } from '../fields.js';
 
 /**
  * Translate an advanced query tree to OpenSearch DSL: text matches all words or the phrase, other types match exactly

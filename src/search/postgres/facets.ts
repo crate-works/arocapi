@@ -1,5 +1,5 @@
 import { sqltag as sql } from '@prisma/client/runtime/client';
-import { fieldValue, valuesOf } from './postgresValues.js';
+import { fieldValue, valuesOf } from './values.js';
 
 /**
  * A facet's buckets over the `matched` rows: the `size` commonest values, most matches first

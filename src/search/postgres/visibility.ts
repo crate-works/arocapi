@@ -1,7 +1,7 @@
 import { join, type Sql, sqltag as sql } from '@prisma/client/runtime/client';
-import { type FieldDeclarations, type FieldType, type Scalar, toWire } from './fields.js';
-import { fieldValue, parameter, valuesOf, valuesPath } from './postgresValues.js';
-import type { VisibilityCondition } from './visibility.js';
+import { type FieldDeclarations, type FieldType, type Scalar, toWire } from '../fields.js';
+import type { VisibilityCondition } from '../visibility.js';
+import { fieldValue, parameter, valuesOf, valuesPath } from './values.js';
 
 const OPERATORS = { lt: sql`<`, lte: sql`<=`, gt: sql`>`, gte: sql`>=` };
 

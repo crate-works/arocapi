@@ -1,6 +1,6 @@
 import { type Sql, sqltag as sql } from '@prisma/client/runtime/client';
-import { type BoundingBox, GEOHASH_GRID_CELLS } from './backend.js';
-import type { GeoPoint } from './fields.js';
+import { type BoundingBox, GEOHASH_GRID_CELLS } from '../backend.js';
+import type { GeoPoint } from '../fields.js';
 
 const GEOHASH_ALPHABET = '0123456789bcdefghjkmnpqrstuvwxyz';
 

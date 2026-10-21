@@ -10,7 +10,7 @@ import {
   SearchQueryError,
   type SearchRequest,
   type SearchResult,
-} from './backend.js';
+} from '../backend.js';
 import {
   capabilitiesFromFields,
   type FieldDeclaration,
@@ -19,11 +19,11 @@ import {
   resolveFields,
   type SearchDocument,
   storeDocuments,
-} from './fields.js';
-import { advancedQueryFor } from './opensearchAdvanced.js';
-import { visibilityQuery } from './opensearchVisibility.js';
-import { filtersCondition } from './requestFilters.js';
-import { checkSearchVisibility } from './visibility.js';
+} from '../fields.js';
+import { filtersCondition } from '../requestFilters.js';
+import { checkSearchVisibility } from '../visibility.js';
+import { advancedQueryFor } from './advanced.js';
+import { visibilityQuery } from './visibility.js';
 
 export type OpenSearchBackendOptions<Fields extends FieldDeclarations> = {
   client: Client;

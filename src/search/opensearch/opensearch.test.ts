@@ -1,8 +1,8 @@
 import { Client } from '@opensearch-project/opensearch';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { describeSearchBackendWrites } from '../test/helpers/searchBackendWrite.js';
-import { SearchQueryError, type SearchRequest } from './backend.js';
-import type { FieldDeclarations } from './fields.js';
+import { describeSearchBackendWrites } from '../../test/helpers/searchBackendWrite.js';
+import { SearchQueryError, type SearchRequest } from '../backend.js';
+import type { FieldDeclarations } from '../fields.js';
 import { OpenSearchBackend } from './opensearch.js';
 
 const client = new Client({ node: 'http://localhost:9201' });

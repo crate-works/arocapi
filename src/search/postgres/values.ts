@@ -1,5 +1,5 @@
 import { type Sql, sqltag as sql } from '@prisma/client/runtime/client';
-import { type FieldType, type Scalar, toWire } from './fields.js';
+import { type FieldType, type Scalar, toWire } from '../fields.js';
 
 export const TEXT_SEARCH_CONFIG = sql`'simple'::regconfig`;
 

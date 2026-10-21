@@ -1,10 +1,10 @@
 import type { Sql } from '@prisma/client/runtime/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaClient } from '../generated/prisma/client.js';
-import { isolatedPrisma } from '../test/helpers/postgresSchema.js';
-import { describeSearchBackendWrites } from '../test/helpers/searchBackendWrite.js';
-import { type AdvancedQuery, SearchQueryError } from './backend.js';
-import type { FieldDeclarations } from './fields.js';
+import type { PrismaClient } from '../../generated/prisma/client.js';
+import { isolatedPrisma } from '../../test/helpers/postgresSchema.js';
+import { describeSearchBackendWrites } from '../../test/helpers/searchBackendWrite.js';
+import { type AdvancedQuery, SearchQueryError } from '../backend.js';
+import type { FieldDeclarations } from '../fields.js';
 import { PostgresBackend } from './postgres.js';
 
 let prisma: PrismaClient;

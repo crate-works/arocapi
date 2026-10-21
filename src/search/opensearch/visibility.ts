@@ -1,6 +1,6 @@
 import type { QueryContainer } from '@opensearch-project/opensearch/api/_types/_common.query_dsl.js';
-import { toWire } from './fields.js';
-import type { VisibilityCondition } from './visibility.js';
+import { toWire } from '../fields.js';
+import type { VisibilityCondition } from '../visibility.js';
 
 /**
  * Translate a checked search visibility filter to an OpenSearch filter, comparing each field's exact form

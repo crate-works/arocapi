@@ -39,10 +39,10 @@ export type {
   SearchDocument,
 } from './search/fields.js';
 export { capabilitiesFromFields } from './search/fields.js';
-export type { OpenSearchBackendOptions } from './search/opensearch.js';
-export { OpenSearchBackend } from './search/opensearch.js';
-export type { PostgresBackendOptions, PostgresClient } from './search/postgres.js';
-export { PostgresBackend } from './search/postgres.js';
+export type { OpenSearchBackendOptions } from './search/opensearch/opensearch.js';
+export { OpenSearchBackend } from './search/opensearch/opensearch.js';
+export type { PostgresBackendOptions, PostgresClient } from './search/postgres/postgres.js';
+export { PostgresBackend } from './search/postgres/postgres.js';
 export type { SearchVisibilityWhere, VisibilityCondition } from './search/visibility.js';
 export { checkSearchVisibility } from './search/visibility.js';
 export type {
