@@ -1,0 +1,4 @@
+{
+  "extension": "0002-flat-direct-storage-layout",
+  "description": "OCFL object identifiers are used without changes as directory names under the storage root."
+}

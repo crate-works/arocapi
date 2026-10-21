@@ -97,6 +97,42 @@ describe('OcflStorage', () => {
       expect(response.body).toBe(itemCrate);
     });
 
+    it.each([
+      ['0002-flat-direct-storage-layout', 'flat-direct', ['object-01', '..hor_rib:lé-$id']],
+      [
+        '0003-hash-and-id-n-tuple-storage-layout',
+        'hash-and-id-n-tuple',
+        ['object-01', '..Hor/rib:lè-$id', "info:fedora/Object~01!'()*", 'abcdefghij'.repeat(11)],
+      ],
+      ['0004-hashed-n-tuple-storage-layout', 'hashed-n-tuple', ['object-01', '..hor/rib:le-$id']],
+    ])('serves %s with its extension config', async (_, dir, ids) => {
+      const storage = await OcflStorage({ root: join(fixtures, dir) });
+
+      for (const ocflObject of ids) {
+        const metadata = await getMetadata(storage, { ocflObject, ocflPath: 'collection/ro-crate-metadata.json' });
+        const content = await getContent(storage, { ocflObject, ocflPath: 'collection/item/greeting.wav' });
+
+        expect(metadata.statusCode, ocflObject).toBe(200);
+        expect(content.body, ocflObject).toBe('RIFF greeting bytes');
+      }
+    });
+
+    it("uses a hashed layout's defaults without extension config", async () => {
+      const root = await storageRoot('hashed-defaults', {
+        'ocfl_layout.json': JSON.stringify({ extension: '0004-hashed-n-tuple-storage-layout' }),
+      });
+      await cp(
+        join(fixtures, 'hashed-n-tuple/ff/75/53/44/92/48/5e/ab/b3/9f/86/35/67/28/88/4e'),
+        join(root, '3c0/ff4/240/3c0ff4240c1e116dba14c7627f2319b58aa3d77606d0d90dfc6161608ac987d4'),
+        { recursive: true },
+      );
+      const storage = await OcflStorage({ root });
+
+      const response = await getContent(storage, { ocflObject: 'object-01', ocflPath: 'collection/item/greeting.wav' });
+
+      expect(response.body).toBe('RIFF greeting bytes');
+    });
+
     it("honours the layout's extension config", async () => {
       const root = await storageRoot('omit-scheme', {
         'ocfl_layout.json': JSON.stringify({ extension: '000N-path-direct-storage-layout' }),

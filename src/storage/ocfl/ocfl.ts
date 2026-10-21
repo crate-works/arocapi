@@ -14,7 +14,12 @@ export type OcflStorageOptions = {
   locate?: StorageLocate<OcflLocation>;
 };
 
-const LAYOUTS = new Set(['000N-path-direct-storage-layout']);
+const LAYOUTS = new Set([
+  '0002-flat-direct-storage-layout',
+  '0003-hash-and-id-n-tuple-storage-layout',
+  '0004-hashed-n-tuple-storage-layout',
+  '000N-path-direct-storage-layout',
+]);
 
 const METADATA_PATH = 'ro-crate-metadata.json';
 
@@ -50,7 +55,7 @@ const layoutRoot = async (base: string) => {
 
   const config = await readJson(join(base, 'extensions', extension, 'config.json'));
 
-  return layoutObjectRoot(extension, config as object | null);
+  return layoutObjectRoot(base, extension, config as object | null);
 };
 
 const metadataLocation = (entity: Entity): OcflLocation | null => {

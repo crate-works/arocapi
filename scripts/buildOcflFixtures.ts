@@ -37,7 +37,8 @@ type Layout = {
 
 type StorageRootSpec = { dir: string; layout: Layout; objects: ObjectSpec[] };
 
-const sha512 = (data: string) => createHash('sha512').update(data).digest('hex');
+const hash = (algorithm: string, data: string) => createHash(algorithm).update(data, 'utf8').digest('hex');
+const sha512 = (data: string) => hash('sha512', data);
 
 const write = (path: string, data: string) => {
   mkdirSync(dirname(path), { recursive: true });
@@ -161,6 +162,58 @@ const pathDirect: Layout = {
   },
 };
 
+const flatDirect: Layout = {
+  extension: '0002-flat-direct-storage-layout',
+  description: 'OCFL object identifiers are used without changes as directory names under the storage root.',
+  map: (id) => id,
+};
+
+type NTuple = { digestAlgorithm: string; tupleSize: number; numberOfTuples: number };
+
+const tuples = ({ tupleSize, numberOfTuples }: NTuple, digest: string) =>
+  Array.from({ length: numberOfTuples }, (_, index) => digest.slice(index * tupleSize, (index + 1) * tupleSize));
+
+/** Every UTF-8 byte outside A-Z a-z 0-9 - _ as %xx, truncated past 100 characters with the digest appended */
+const encapsulation = (id: string, digest: string) => {
+  let encoded = '';
+  for (const byte of Buffer.from(id, 'utf8')) {
+    const safe =
+      (byte >= 0x30 && byte <= 0x39) ||
+      (byte >= 0x41 && byte <= 0x5a) ||
+      (byte >= 0x61 && byte <= 0x7a) ||
+      byte === 0x2d ||
+      byte === 0x5f;
+    encoded += safe ? String.fromCharCode(byte) : `%${byte.toString(16).padStart(2, '0')}`;
+  }
+
+  return encoded.length > 100 ? `${encoded.slice(0, 100)}-${digest}` : encoded;
+};
+
+const hashAndIdConfig: NTuple = { digestAlgorithm: 'sha512', tupleSize: 2, numberOfTuples: 4 };
+const hashAndIdNTuple: Layout = {
+  extension: '0003-hash-and-id-n-tuple-storage-layout',
+  description: 'OCFL object identifiers are hashed into n-tuple directories holding the percent-encoded identifier.',
+  config: { extensionName: '0003-hash-and-id-n-tuple-storage-layout', ...hashAndIdConfig },
+  map: (id) => {
+    const digest = hash(hashAndIdConfig.digestAlgorithm, id);
+
+    return [...tuples(hashAndIdConfig, digest), encapsulation(id, digest)].join('/');
+  },
+};
+
+const hashedConfig: NTuple = { digestAlgorithm: 'md5', tupleSize: 2, numberOfTuples: 15 };
+const hashedNTuple: Layout = {
+  extension: '0004-hashed-n-tuple-storage-layout',
+  description: 'OCFL object identifiers are hashed into n-tuple directories.',
+  config: { extensionName: '0004-hashed-n-tuple-storage-layout', ...hashedConfig, shortObjectRoot: true },
+  map: (id) => {
+    const digest = hash(hashedConfig.digestAlgorithm, id);
+    const used = hashedConfig.tupleSize * hashedConfig.numberOfTuples;
+
+    return [...tuples(hashedConfig, digest), digest.slice(used)].join('/');
+  },
+};
+
 /** A layout OcflStorage doesn't implement, so a consumer must pass `objectRoot` */
 const customLayout: Layout = {
   extension: 'example-custom-layout',
@@ -210,3 +263,18 @@ writeStorageRoot({
   layout: customLayout,
   objects: [{ id: 'https://example.com/storage/custom', versions: single({ 'ro-crate-metadata.json': itemCrate }) }],
 });
+
+// Must match the ids in src/storage/ocfl/ocfl.test.ts
+const layoutIds = {
+  'flat-direct': ['object-01', '..hor_rib:lé-$id'],
+  'hash-and-id-n-tuple': ['object-01', '..Hor/rib:lè-$id', "info:fedora/Object~01!'()*", 'abcdefghij'.repeat(11)],
+  'hashed-n-tuple': ['object-01', '..hor/rib:le-$id'],
+};
+
+for (const [dir, layout] of [
+  ['flat-direct', flatDirect],
+  ['hash-and-id-n-tuple', hashAndIdNTuple],
+  ['hashed-n-tuple', hashedNTuple],
+] as const) {
+  writeStorageRoot({ dir, layout, objects: layoutIds[dir].map((id) => ({ id, versions: single(storedItems) })) });
+}
