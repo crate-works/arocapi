@@ -2,33 +2,13 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Entity, File } from '../../generated/prisma/client.js';
+import { entityRow, fileRow } from '../../test/helpers/rows.js';
 import type { ContentContext } from '../backend.js';
 import { DirectoryStorage } from './directory.js';
 
-const entity: Entity = {
-  id: 'http://example.com/item',
-  name: 'Item',
-  description: '',
-  entityType: 'http://pcdm.org/models#Object',
-  memberOf: null,
-  rootCollection: null,
-  metadataLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
-  contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
-  meta: null,
-  createdAt: new Date(),
-  updatedAt: new Date(),
-};
+const entity = entityRow();
 
-const file: File = {
-  id: entity.id,
-  filename: 'item.wav',
-  mediaType: 'audio/wav',
-  size: BigInt(1),
-  meta: null,
-  createdAt: new Date(),
-  updatedAt: new Date(),
-};
+const file = fileRow({ id: entity.id });
 
 const context = {} as ContentContext;
 
@@ -44,7 +24,7 @@ describe('DirectoryStorage', () => {
     await rm(root, { recursive: true });
   });
 
-  it.each([42, { path: 'item.wav' }, ['item.wav'], true])(
+  it.each([42, { path: 'item.wav' }, ['item.wav'], true, null])(
     'throws naming the entity and key when storagePath is %j',
     async (storagePath) => {
       const storage = DirectoryStorage({ root });
@@ -58,7 +38,7 @@ describe('DirectoryStorage', () => {
     },
   );
 
-  it.each([null, ['item.wav'], 'item.wav', { storagePath: null }])('finds nothing when meta is %j', async (meta) => {
+  it.each([null, ['item.wav'], 'item.wav', {}])('finds nothing when meta is %j', async (meta) => {
     const storage = DirectoryStorage({ root });
 
     await expect(storage.metadata({ ...entity, meta }, context)).resolves.toBeNull();

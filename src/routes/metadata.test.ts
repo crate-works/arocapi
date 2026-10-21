@@ -3,26 +3,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mockReset } from 'vitest-mock-extended';
 import type { ContentSource, MetadataDelivery, MetadataSource } from '../storage/backend.js';
 import { prisma } from '../test/helpers/fastify.js';
+import { getAndHead } from '../test/helpers/getAndHead.js';
+import { entityRow } from '../test/helpers/rows.js';
 import { buildStorageApp } from '../test/helpers/storageApp.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
 
-const entity = {
+const entity = entityRow({
   id: 'http://example.com/object',
-  name: 'Test Object',
-  description: 'An object',
-  entityType: 'http://pcdm.org/models#Object',
   memberOf: 'http://example.com/collection',
   rootCollection: 'http://example.com/collection',
-  metadataLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
-  contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
   meta: { storagePath: 'object/ro-crate-metadata.json' },
-  createdAt: new Date(),
-  updatedAt: new Date(),
-};
+});
 
 const url = `/entity/${encodeURIComponent(entity.id)}/metadata`;
 const crate = '{"@context":"https://w3id.org/ro/crate/1.1/context"}';
@@ -38,37 +33,31 @@ describe('Metadata Route', () => {
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), 'arocapi-metadata-'));
     await writeFile(join(dir, 'ro-crate-metadata.json'), crate);
+    built = await buildStorageApp({ metadata, content });
+    app = built.app;
   });
 
   afterAll(async () => {
+    await app.close();
     await rm(dir, { recursive: true });
   });
 
-  beforeEach(async () => {
+  beforeEach(() => {
     mockReset(prisma);
     metadata.mockReset();
-    built = await buildStorageApp({ metadata, content });
-    app = built.app;
+    content.mockReset();
+    built.access.mockReset();
+    built.errors.length = 0;
     prisma.entity.findFirst.mockResolvedValue(entity);
   });
 
-  afterEach(async () => {
-    await app.close();
-  });
-
-  const both = async () => {
-    const get = await app.inject({ method: 'GET', url });
-    const head = await app.inject({ method: 'HEAD', url });
-
-    return { get, head };
-  };
+  const both = () => getAndHead((method) => app.inject({ method, url }));
 
   describe('path delivery', () => {
     it('opens the path on GET and sends the delivery headers as JSON-LD on GET and HEAD', async () => {
       metadata.mockResolvedValue({
         type: 'path',
         path: join(dir, 'ro-crate-metadata.json'),
-        contentType: 'text/plain',
         contentLength: crate.length,
         etag: 'W/"abc"',
         lastModified,
@@ -92,7 +81,6 @@ describe('Metadata Route', () => {
       metadata.mockResolvedValue({
         type: 'path',
         path: join(dir, 'missing.json'),
-        contentType: 'application/ld+json',
         contentLength: 10,
       });
 
@@ -106,7 +94,7 @@ describe('Metadata Route', () => {
   describe('stream delivery', () => {
     it('opens the stream only on GET, making one call per request', async () => {
       const open = vi.fn(() => Readable.from([crate]));
-      metadata.mockReturnValue({ type: 'stream', open, contentType: 'application/json', contentLength: crate.length });
+      metadata.mockReturnValue({ type: 'stream', open, contentLength: crate.length });
 
       const head = await app.inject({ method: 'HEAD', url });
 
@@ -171,8 +159,21 @@ describe('Metadata Route', () => {
     const { get, head } = await both();
 
     expect(get.statusCode).toBe(404);
-    expect(get.json<StandardErrorResponse>().error.code).toBe('NOT_FOUND');
+    expect(get.json<StandardErrorResponse>().error).toMatchObject({
+      code: 'NOT_FOUND',
+      message: 'The requested Metadata was not found',
+    });
     expect(head.statusCode).toBe(404);
+  });
+
+  it('answers a logged 500 for a delivery type it does not know', async () => {
+    metadata.mockReturnValue({ type: 'inline', value: {} } as unknown as MetadataDelivery);
+
+    const { get, head } = await both();
+
+    expect(get.statusCode).toBe(500);
+    expect(head.statusCode).toBe(500);
+    expect(built.errors[0]?.err?.message).toContain('a delivery of type "inline"');
   });
 
   it('answers a logged 500 when the half throws', async () => {

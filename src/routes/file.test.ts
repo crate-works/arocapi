@@ -3,39 +3,35 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mockReset } from 'vitest-mock-extended';
-import type { ContentSource, MetadataSource } from '../storage/backend.js';
+import type { File } from '../generated/prisma/client.js';
+import type { ContentDelivery, ContentSource, MetadataSource } from '../storage/backend.js';
 import { prisma } from '../test/helpers/fastify.js';
+import { getAndHead } from '../test/helpers/getAndHead.js';
+import { entityRow, fileRow } from '../test/helpers/rows.js';
 import { buildStorageApp } from '../test/helpers/storageApp.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
 
-const entity = {
+const entity = entityRow({
   id: 'http://example.com/file/test.wav',
   name: 'test.wav',
-  description: 'A test file',
   entityType: 'http://schema.org/MediaObject',
   memberOf: 'http://example.com/object',
   rootCollection: 'http://example.com/collection',
-  metadataLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
   contentLicenseId: 'https://example.com/licence/restricted',
   meta: { ocflObject: 'http://example.com/object' },
-  createdAt: new Date(),
-  updatedAt: new Date(),
-};
+});
 
-const file = {
+const file = fileRow({
   id: entity.id,
   filename: 'test.wav',
-  mediaType: 'audio/wav',
   size: BigInt(999999),
   meta: { storagePath: 'object/test.wav' },
-  createdAt: new Date(),
-  updatedAt: new Date(),
-};
+});
 
 // findFirst's mock is typed without the include
-const withEntity = (row: typeof file) => ({ ...row, entity }) as typeof file;
+const withEntity = (row: File) => ({ ...row, entity }) as File;
 
 const url = `/file/${encodeURIComponent(file.id)}`;
 const bytes = 'RIFF audio bytes';
@@ -51,30 +47,25 @@ describe('File Route', () => {
   beforeAll(async () => {
     dir = await mkdtemp(join(tmpdir(), 'arocapi-file-'));
     await writeFile(join(dir, 'test.wav'), bytes);
+    built = await buildStorageApp({ metadata, content });
+    app = built.app;
   });
 
   afterAll(async () => {
+    await app.close();
     await rm(dir, { recursive: true });
   });
 
-  beforeEach(async () => {
+  beforeEach(() => {
     mockReset(prisma);
+    metadata.mockReset();
     content.mockReset();
-    built = await buildStorageApp({ metadata, content });
-    app = built.app;
+    built.access.mockReset();
+    built.errors.length = 0;
     prisma.file.findFirst.mockResolvedValue(withEntity(file));
   });
 
-  afterEach(async () => {
-    await app.close();
-  });
-
-  const both = async (query = '') => {
-    const get = await app.inject({ method: 'GET', url: `${url}${query}` });
-    const head = await app.inject({ method: 'HEAD', url: `${url}${query}` });
-
-    return { get, head };
-  };
+  const both = (query = '') => getAndHead((method) => app.inject({ method, url: `${url}${query}` }));
 
   describe('path delivery', () => {
     it('opens the path on GET and sends the delivery headers on GET and HEAD, never File.size', async () => {
@@ -138,6 +129,30 @@ describe('File Route', () => {
       expect(content).toHaveBeenCalledTimes(2);
       expect(open).toHaveBeenCalledOnce();
     });
+
+    it('destroys the opened stream when its headers cannot be set', async () => {
+      const stream = Readable.from([bytes]);
+      content.mockReturnValue({ type: 'stream', open: () => stream, contentType: 'audio/wav' } as ContentDelivery);
+
+      const response = await app.inject({ method: 'GET', url });
+
+      expect(response.statusCode).toBe(500);
+      expect(response.headers['content-disposition']).toBeUndefined();
+      expect(stream.destroyed).toBe(true);
+    });
+  });
+
+  it.each([
+    ['json', { type: 'json', value: {}, contentType: 'application/json' }],
+    ['unknown', { type: 'inline', contentType: 'audio/wav', contentLength: 1 }],
+  ])('answers a logged 500 for a %s delivery', async (_, delivery) => {
+    content.mockReturnValue(delivery as unknown as ContentDelivery);
+
+    const { get, head } = await both();
+
+    expect(get.statusCode).toBe(500);
+    expect(head.statusCode).toBe(500);
+    expect(built.errors[0]?.err?.message).toContain(`a delivery of type "${delivery.type}"`);
   });
 
   describe('redirect delivery', () => {

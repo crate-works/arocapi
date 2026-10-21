@@ -1,34 +1,43 @@
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Prisma } from '../../generated/prisma/client.js';
-import type { StorageBackend, StorageLocate } from '../../storage/backend.js';
+import type {
+  ContentSource,
+  MaybePromise,
+  MetadataSource,
+  StorageBackend,
+  StorageLocate,
+} from '../../storage/backend.js';
 import { buildTestApp, cleanupTestData, getTestPrisma } from '../integration.setup.js';
+import { getAndHead } from './getAndHead.js';
+import { storedItems } from './storedItems.js';
 
-/** One stored item: its path below the backend's root, and its bytes */
-type StoredItem = { path: string; body: string };
-
-export type StorageContractHarness<Key = string> = {
-  /** Call the backend's factory */
-  create: (locate?: StorageLocate<Key>) => StorageBackend | Promise<StorageBackend>;
+type Prepared = {
   /** Make the fixed set of items readable, starting from nothing stored */
-  prepare: (items: readonly StoredItem[]) => Promise<void>;
+  prepare: (items: typeof storedItems) => Promise<void>;
   /** The `meta` that points a Record at the item stored at `path` by default */
   meta: (path: string) => Prisma.InputJsonObject;
-  /** What a custom `locate` returns for the item stored at `path` */
-  key: (path: string) => Key;
-  /** Metadata is a value in `meta`, re-serialised, rather than stored bytes: no Storage key, `locate.metadata` or Last-Modified */
-  keylessMetadata?: true;
 };
 
-const crate = JSON.stringify({ '@context': 'https://w3id.org/ro/crate/1.2/context', '@graph': [{ name: 'Ŋaŋa' }] });
+/** What a custom `locate` returns for the item stored at `path`; the path itself unless given */
+type Keyed<Key> = string extends Key ? { key?: (path: string) => Key } : { key: (path: string) => Key };
 
-const storedItems = [
-  { path: 'collection/ro-crate-metadata.json', body: crate },
-  { path: 'collection/item/greeting.wav', body: 'RIFF greeting bytes' },
-  { path: 'collection/item/notes.bin', body: 'speaker,line\nŋaŋa,hello\n' },
-] as const satisfies readonly StoredItem[];
+export type MetadataContractHarness<Key = string> = Prepared & {
+  /** The app's storage, of which only the Metadata half is exercised */
+  storage: () => MaybePromise<StorageBackend>;
+  /** For Metadata read from a Storage key: served byte for byte with Last-Modified, unsafe keys refused, and `locate` honoured */
+  stored?: Keyed<Key> & { locate: (locate: StorageLocate<Key>) => MaybePromise<StorageBackend> };
+};
+
+export type ContentContractHarness<Key = string> = Prepared &
+  Keyed<Key> & { content: (locate?: StorageLocate<Key>) => MaybePromise<ContentSource> };
+
+export type StorageContractHarness<Key = string> = Prepared &
+  Keyed<Key> & { create: (locate?: StorageLocate<Key>) => MaybePromise<StorageBackend> };
 
 const [crateItem, wavItem, notesItem] = storedItems;
+
+const keyOf = <Key>(keyed: { key?: (path: string) => Key }) => keyed.key ?? ((path: string) => path as Key);
 
 const id = (name: string) => `http://example.com/storage/${name}`;
 
@@ -82,214 +91,252 @@ const serve = async (instance: FastifyInstance, method: 'GET' | 'HEAD', url: str
   return { statusCode: response.status, body: method === 'HEAD' ? '' : body, headers: Object.fromEntries(headers) };
 };
 
+const entityUrl = (name: string) => `/entity/${encodeURIComponent(id(name))}/metadata`;
+const fileUrl = (name: string, query = '') => `/file/${encodeURIComponent(id(name))}${query}`;
+
+const noMetadata: MetadataSource = () => null;
+
 /**
- * The `/entity/:id/metadata` and `/file/:id` cases every stored reference backend must pass
+ * Store the items and create `rows` before the suite, and remove both after it
  */
-export const describeStorageContract = <Key>(name: string, harness: StorageContractHarness<Key>) => {
-  const keyed = !harness.keylessMetadata;
+const useRows = (harness: Prepared, rows: () => Row[]) => {
+  beforeAll(async () => {
+    await cleanupTestData();
+    await harness.prepare(storedItems);
+    await createRows(rows());
+  });
 
-  describe(`${name} storage contract`, () => {
-    const entityUrl = (name: string) => `/entity/${encodeURIComponent(id(name))}/metadata`;
-    const fileUrl = (name: string, query = '') => `/file/${encodeURIComponent(id(name))}${query}`;
+  afterAll(async () => {
+    await cleanupTestData();
+  });
+};
 
-    let app: FastifyInstance;
+/**
+ * An app serving `storage`, built before the suite and closed after it
+ */
+const useApp = (storage: () => MaybePromise<StorageBackend>) => {
+  let app: FastifyInstance;
 
-    const getAndHead = async (url: string) => {
-      const get = await serve(app, 'GET', url);
-      const head = await serve(app, 'HEAD', url);
+  beforeAll(async () => {
+    app = await buildTestApp({ storage: await storage() });
+  });
 
-      return { get, head };
-    };
+  afterAll(async () => {
+    await app.close();
+  });
 
-    beforeAll(async () => {
-      await cleanupTestData();
-      await harness.prepare(storedItems);
-      await createRows([
-        { name: 'collection', meta: harness.meta(crateItem.path) },
-        { name: 'missing-crate', meta: harness.meta('collection/missing.json') },
-        { name: 'no-key' },
-        { name: 'absolute-crate', meta: harness.meta('/etc/passwd') },
-        { name: 'parent-crate', meta: harness.meta('collection/../../outside.json') },
-        {
-          name: 'greeting.wav',
-          meta: harness.meta(wavItem.path),
-          file: { filename: 'greeting.wav', mediaType: 'audio/wav' },
-        },
-        {
-          name: 'notes.csv',
-          meta: harness.meta(notesItem.path),
-          file: { filename: 'notes.csv', mediaType: 'text/csv' },
-        },
-        {
-          name: 'missing.wav',
-          meta: harness.meta('collection/item/missing.wav'),
-          file: { filename: 'missing.wav', mediaType: 'audio/wav' },
-        },
-        { name: 'no-key.wav', file: { filename: 'no-key.wav', mediaType: 'audio/wav' } },
-        {
-          name: 'absolute.wav',
-          meta: harness.meta('/etc/passwd'),
-          file: { filename: 'absolute.wav', mediaType: 'audio/wav' },
-        },
-        {
-          name: 'parent.wav',
-          meta: harness.meta('../outside.wav'),
-          file: { filename: 'parent.wav', mediaType: 'audio/wav' },
-        },
-      ]);
-      app = await buildTestApp({ storage: await harness.create() });
-    });
+  return (url: string) => getAndHead((method) => serve(app, method, url));
+};
 
-    afterAll(async () => {
-      await app.close();
-      await cleanupTestData();
-    });
+/**
+ * The `/entity/:id/metadata` cases every reference Metadata half must pass
+ */
+export const describeMetadataContract = <Key = string>(name: string, harness: MetadataContractHarness<Key>) => {
+  const { stored } = harness;
 
-    describe('Metadata', () => {
-      it('serves the stored bytes as JSON-LD, with HEAD headers equal to GET', async () => {
-        const { get, head } = await getAndHead(entityUrl('collection'));
+  describe(`${name} Metadata contract`, () => {
+    useRows(harness, () => [
+      { name: 'collection', meta: harness.meta(crateItem.path) },
+      { name: 'missing-crate', meta: harness.meta('collection/missing.json') },
+      { name: 'no-key' },
+      { name: 'absolute-crate', meta: harness.meta('/etc/passwd') },
+      { name: 'parent-crate', meta: harness.meta('collection/../../outside.json') },
+    ]);
+    const request = useApp(harness.storage);
 
-        expect(get.statusCode).toBe(200);
-        if (keyed) {
-          expect(get.body).toBe(crateItem.body);
-        } else {
-          expect(JSON.parse(get.body)).toEqual(JSON.parse(crateItem.body));
-        }
-        expect(get.headers['content-type']).toBe('application/ld+json');
-        expect(get.headers['content-length']).toBe(String(Buffer.byteLength(get.body)));
-        expect(get.headers.etag).toBeDefined();
-        if (keyed) {
-          expect(get.headers['last-modified']).toBeDefined();
-        }
-        expect(head.statusCode).toBe(200);
-        expect(head.body).toBe('');
-        expect(head.headers).toEqual(get.headers);
-      });
+    it('serves the stored Metadata as JSON-LD, with HEAD headers equal to GET', async () => {
+      const { get, head } = await request(entityUrl('collection'));
 
-      it.each(['missing-crate', 'no-key'])('answers 404 for %s', async (name) => {
-        const { get, head } = await getAndHead(entityUrl(name));
-
-        expect(get.statusCode).toBe(404);
-        expect(head.statusCode).toBe(404);
-      });
-
-      if (keyed) {
-        it.each(['absolute-crate', 'parent-crate'])('refuses the unsafe key of %s with 500', async (name) => {
-          const { get, head } = await getAndHead(entityUrl(name));
-
-          expect(get.statusCode).toBe(500);
-          expect(get.body).not.toContain('passwd');
-          expect(head.statusCode).toBe(500);
-        });
-      }
-    });
-
-    describe('Content', () => {
-      it('serves the stored bytes, with HEAD headers equal to GET', async () => {
-        const { get, head } = await getAndHead(fileUrl('greeting.wav'));
-
-        expect(get.statusCode).toBe(200);
-        expect(get.body).toBe(wavItem.body);
-        expect(get.headers['content-type']).toBe('audio/wav');
-        expect(get.headers['content-length']).toBe(String(Buffer.byteLength(wavItem.body)));
-        expect(get.headers['content-disposition']).toBe('inline; filename=greeting.wav');
-        expect(get.headers.etag).toBeDefined();
+      expect(get.statusCode).toBe(200);
+      if (stored) {
+        expect(get.body).toBe(crateItem.body);
         expect(get.headers['last-modified']).toBeDefined();
-        expect(head.statusCode).toBe(200);
-        expect(head.body).toBe('');
-        expect(head.headers).toEqual(get.headers);
-      });
+      } else {
+        expect(JSON.parse(get.body)).toEqual(JSON.parse(crateItem.body));
+      }
+      expect(get.headers['content-type']).toBe('application/ld+json');
+      expect(get.headers['content-length']).toBe(String(Buffer.byteLength(get.body)));
+      expect(get.headers.etag).toBeDefined();
+      expect(head.statusCode).toBe(200);
+      expect(head.body).toBe('');
+      expect(head.headers).toEqual(get.headers);
+    });
 
-      it('takes Content-Type from File.mediaType, not the stored name', async () => {
-        const { get } = await getAndHead(fileUrl('notes.csv'));
+    it.each(['missing-crate', 'no-key'])('answers 404 for %s', async (name) => {
+      const { get, head } = await request(entityUrl(name));
 
-        expect(get.body).toBe(notesItem.body);
-        expect(get.headers['content-type']).toBe('text/csv');
-      });
+      expect(get.statusCode).toBe(404);
+      expect(head.statusCode).toBe(404);
+    });
 
-      it('honours ?disposition and ?filename', async () => {
-        const { get, head } = await getAndHead(fileUrl('greeting.wav', '?disposition=attachment&filename=hello.wav'));
-
-        expect(get.headers['content-disposition']).toBe('attachment; filename=hello.wav');
-        expect(head.headers['content-disposition']).toBe('attachment; filename=hello.wav');
-      });
-
-      it.each(['missing.wav', 'no-key.wav'])('answers 404 for %s', async (name) => {
-        const { get, head } = await getAndHead(fileUrl(name));
-
-        expect(get.statusCode).toBe(404);
-        expect(head.statusCode).toBe(404);
-      });
-
-      it.each(['absolute.wav', 'parent.wav'])('refuses the unsafe key of %s with 500', async (name) => {
-        const { get, head } = await getAndHead(fileUrl(name));
+    if (stored) {
+      it.each(['absolute-crate', 'parent-crate'])('refuses the unsafe key of %s with 500', async (name) => {
+        const { get, head } = await request(entityUrl(name));
 
         expect(get.statusCode).toBe(500);
+        expect(get.body).not.toContain('passwd');
         expect(head.statusCode).toBe(500);
       });
+
+      describe('with a custom locate', () => {
+        const key = keyOf(stored);
+        const paths: Record<string, string | null> = {
+          [id('no-key')]: crateItem.path,
+          [id('collection')]: null,
+          [id('absolute-crate')]: '/etc/passwd',
+        };
+        const located = useApp(() =>
+          stored.locate({
+            metadata: (entity) => {
+              const path = paths[entity.id] ?? null;
+
+              return path === null ? null : key(path);
+            },
+          }),
+        );
+
+        it('serves what locate names, ignoring meta', async () => {
+          const { get } = await located(entityUrl('no-key'));
+
+          expect(get.statusCode).toBe(200);
+          expect(get.body).toBe(crateItem.body);
+        });
+
+        it('answers 404 when locate returns null', async () => {
+          const { get } = await located(entityUrl('collection'));
+
+          expect(get.statusCode).toBe(404);
+        });
+
+        it('refuses an unsafe key from locate with 500', async () => {
+          const { get } = await located(entityUrl('absolute-crate'));
+
+          expect(get.statusCode).toBe(500);
+        });
+      });
+    }
+  });
+};
+
+/**
+ * The `/file/:id` cases every reference Content half must pass
+ */
+const describeContentContract = <Key = string>(name: string, harness: ContentContractHarness<Key>) => {
+  const file = (name: string, mediaType: string, path?: string): Row => ({
+    name,
+    file: { filename: name, mediaType },
+    ...(path !== undefined && { meta: harness.meta(path) }),
+  });
+
+  describe(`${name} Content contract`, () => {
+    useRows(harness, () => [
+      file('greeting.wav', 'audio/wav', wavItem.path),
+      file('notes.csv', 'text/csv', notesItem.path),
+      file('missing.wav', 'audio/wav', 'collection/item/missing.wav'),
+      file('no-key.wav', 'audio/wav'),
+      file('absolute.wav', 'audio/wav', '/etc/passwd'),
+      file('parent.wav', 'audio/wav', '../outside.wav'),
+    ]);
+    const request = useApp(async () => ({ metadata: noMetadata, content: await harness.content() }));
+
+    it('serves the stored bytes, with HEAD headers equal to GET', async () => {
+      const { get, head } = await request(fileUrl('greeting.wav'));
+
+      expect(get.statusCode).toBe(200);
+      expect(get.body).toBe(wavItem.body);
+      expect(get.headers['content-type']).toBe('audio/wav');
+      expect(get.headers['content-length']).toBe(String(Buffer.byteLength(wavItem.body)));
+      expect(get.headers['content-disposition']).toBe('inline; filename=greeting.wav');
+      expect(get.headers.etag).toBeDefined();
+      expect(get.headers['last-modified']).toBeDefined();
+      expect(head.statusCode).toBe(200);
+      expect(head.body).toBe('');
+      expect(head.headers).toEqual(get.headers);
+    });
+
+    it('takes Content-Type from File.mediaType, not the stored name', async () => {
+      const { get } = await request(fileUrl('notes.csv'));
+
+      expect(get.body).toBe(notesItem.body);
+      expect(get.headers['content-type']).toBe('text/csv');
+    });
+
+    it('honours ?disposition and ?filename', async () => {
+      const { get, head } = await request(fileUrl('greeting.wav', '?disposition=attachment&filename=hello.wav'));
+
+      expect(get.headers['content-disposition']).toBe('attachment; filename=hello.wav');
+      expect(head.headers['content-disposition']).toBe('attachment; filename=hello.wav');
+    });
+
+    it.each(['missing.wav', 'no-key.wav'])('answers 404 for %s', async (name) => {
+      const { get, head } = await request(fileUrl(name));
+
+      expect(get.statusCode).toBe(404);
+      expect(head.statusCode).toBe(404);
+    });
+
+    it.each(['absolute.wav', 'parent.wav'])('refuses the unsafe key of %s with 500', async (name) => {
+      const { get, head } = await request(fileUrl(name));
+
+      expect(get.statusCode).toBe(500);
+      expect(head.statusCode).toBe(500);
     });
 
     describe('with a custom locate', () => {
-      let located: FastifyInstance;
-
+      const key = keyOf(harness);
       const paths: Record<string, string | null> = {
-        [id('no-key')]: crateItem.path,
         [id('no-key.wav')]: wavItem.path,
-        [id('collection')]: null,
         [id('greeting.wav')]: null,
-        [id('absolute-crate')]: '/etc/passwd',
         [id('absolute.wav')]: 'collection/../../outside.wav',
       };
-      const locate = (entityId: string) => {
-        const path = paths[entityId] ?? null;
+      const located = useApp(async () => ({
+        metadata: noMetadata,
+        content: await harness.content({
+          content: async (file) => {
+            const path = paths[file.id] ?? null;
 
-        return path === null ? null : harness.key(path);
-      };
-
-      beforeAll(async () => {
-        located = await buildTestApp({
-          storage: await harness.create({
-            metadata: (entity) => locate(entity.id),
-            content: async (file) => locate(file.id),
-          }),
-        });
-      });
-
-      afterAll(async () => {
-        await located.close();
-      });
+            return path === null ? null : key(path);
+          },
+        }),
+      }));
 
       it('serves what locate names, ignoring meta', async () => {
-        const metadata = await serve(located, 'GET', entityUrl('no-key'));
-        const content = await serve(located, 'GET', fileUrl('no-key.wav'));
+        const { get } = await located(fileUrl('no-key.wav'));
 
-        if (keyed) {
-          expect(metadata.statusCode).toBe(200);
-          expect(metadata.body).toBe(crateItem.body);
-        }
-        expect(content.statusCode).toBe(200);
-        expect(content.body).toBe(wavItem.body);
+        expect(get.statusCode).toBe(200);
+        expect(get.body).toBe(wavItem.body);
       });
 
       it('answers 404 when locate returns null', async () => {
-        const metadata = await serve(located, 'GET', entityUrl('collection'));
-        const content = await serve(located, 'GET', fileUrl('greeting.wav'));
+        const { get } = await located(fileUrl('greeting.wav'));
 
-        if (keyed) {
-          expect(metadata.statusCode).toBe(404);
-        }
-        expect(content.statusCode).toBe(404);
+        expect(get.statusCode).toBe(404);
       });
 
       it('refuses an unsafe key from locate with 500', async () => {
-        const metadata = await serve(located, 'GET', entityUrl('absolute-crate'));
-        const content = await serve(located, 'GET', fileUrl('absolute.wav'));
+        const { get } = await located(fileUrl('absolute.wav'));
 
-        if (keyed) {
-          expect(metadata.statusCode).toBe(500);
-        }
-        expect(content.statusCode).toBe(500);
+        expect(get.statusCode).toBe(500);
       });
     });
+  });
+};
+
+/**
+ * Both contracts for a stored reference backend, whose halves read Storage keys
+ */
+export const describeStorageContract = <Key = string>(name: string, harness: StorageContractHarness<Key>) => {
+  const { create, ...prepared } = harness;
+  const keyed = { key: keyOf<Key>(harness) } as Keyed<Key>;
+
+  describeMetadataContract<Key>(name, {
+    ...prepared,
+    storage: () => create(),
+    stored: { ...keyed, locate: create },
+  });
+  describeContentContract<Key>(name, {
+    ...prepared,
+    ...keyed,
+    content: async (locate) => (await create(locate)).content,
   });
 };

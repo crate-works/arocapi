@@ -24,7 +24,7 @@ export const putTestObjects = async (
       throw error;
     }
   });
-  for (const { path, body } of items) {
-    await client.send(new PutObjectCommand({ Bucket: bucket, Key: path, Body: body }));
-  }
+  await Promise.all(
+    items.map(({ path, body }) => client.send(new PutObjectCommand({ Bucket: bucket, Key: path, Body: body }))),
+  );
 };

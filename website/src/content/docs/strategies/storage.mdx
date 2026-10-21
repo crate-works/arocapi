@@ -105,7 +105,8 @@ When you redirect, plan for:
   get `200 { "location": url }`, and fetch the URL itself.
 - **`HEAD` on a redirect.** `HEAD /file/:id` answers `302` with the presigned URL, but that URL is signed for `GET`,
   so a client that repeats the `HEAD` against `Location` gets `403` from the bucket. To learn the size without the
-  body, follow with a `GET` carrying `Range: bytes=0-0` and read the total from `Content-Range`.
+  body, follow with a `GET` carrying `Range: bytes=0-0` and read the total from `Content-Range`. See
+  [#131](https://github.com/crate-works/arocapi/issues/131).
 
 Choose `delivery: 'stream'` when clients can't reach the bucket, such as a store on a private network, or when you
 don't want URLs that outlive the access check. Metadata always streams from S3, whichever you choose.

@@ -1,21 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { Entity } from '../../generated/prisma/client.js';
+import { entityRow } from '../../test/helpers/rows.js';
 import type { RequestContext } from '../../types/context.js';
 import { EntityMetaMetadata } from './entity-meta.js';
 
-const entity: Entity = {
-  id: 'http://example.com/item',
-  name: 'Item',
-  description: '',
-  entityType: 'http://pcdm.org/models#Object',
-  memberOf: null,
-  rootCollection: null,
-  metadataLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
-  contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
-  meta: null,
-  createdAt: new Date(),
-  updatedAt: new Date(),
-};
+const entity = entityRow();
 
 const context = {} as RequestContext;
 

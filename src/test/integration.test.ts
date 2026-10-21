@@ -16,7 +16,7 @@ import type { AuthorisedEntity, AuthorisedFile } from '../transformers/default.j
 import type { StandardErrorResponse } from '../utils/errors.js';
 import { putTestObjects, testS3Client } from './helpers/s3.js';
 import { describeSearchBackendContract } from './helpers/searchBackendContract.js';
-import { describeStorageContract } from './helpers/storageBackendContract.js';
+import { describeMetadataContract, describeStorageContract } from './helpers/storageBackendContract.js';
 import {
   buildTestApp,
   cleanupTestData,
@@ -1084,7 +1084,7 @@ describe('Storage backends', () => {
       await rm(root, { recursive: true });
     });
 
-    describeStorageContract<string>('DirectoryStorage', {
+    describeStorageContract('DirectoryStorage', {
       create: (locate) => DirectoryStorage({ root, locate }),
       prepare: async (items) => {
         for (const { path, body } of items) {
@@ -1093,13 +1093,12 @@ describe('Storage backends', () => {
         }
       },
       meta: (path) => ({ storagePath: path }),
-      key: (path) => path,
     });
   });
 
   describe('EntityMetaMetadata', () => {
-    let root: string;
     const crates = new Map<string, Prisma.InputJsonObject>();
+    let root: string;
 
     beforeAll(async () => {
       root = await mkdtemp(join(tmpdir(), 'arocapi-entity-meta-'));
@@ -1109,24 +1108,16 @@ describe('Storage backends', () => {
       await rm(root, { recursive: true });
     });
 
-    describeStorageContract<string>('EntityMetaMetadata mixed with DirectoryStorage', {
-      create: (locate) => ({
-        metadata: EntityMetaMetadata(),
-        content: DirectoryStorage({ root, locate: { content: locate?.content } }).content,
-      }),
+    describeMetadataContract('EntityMetaMetadata', {
+      storage: () => ({ metadata: EntityMetaMetadata(), content: DirectoryStorage({ root }).content }),
       prepare: async (items) => {
         for (const { path, body } of items) {
           if (path.endsWith('.json')) {
             crates.set(path, JSON.parse(body) as Prisma.InputJsonObject);
-          } else {
-            await mkdir(dirname(join(root, path)), { recursive: true });
-            await writeFile(join(root, path), body);
           }
         }
       },
-      meta: (path) => ({ storagePath: path, ...(crates.has(path) && { rocrate: crates.get(path) }) }),
-      key: (path) => path,
-      keylessMetadata: true,
+      meta: (path) => (crates.has(path) ? { rocrate: crates.get(path) } : {}),
     });
   });
 
@@ -1140,11 +1131,10 @@ describe('Storage backends', () => {
     describe.each(['redirect', 'stream'] as const)('with %s delivery', (delivery) => {
       const bucket = `storage-contract-${delivery}`;
 
-      describeStorageContract<string>(`S3Storage (${delivery})`, {
+      describeStorageContract(`S3Storage (${delivery})`, {
         create: (locate) => S3Storage({ client, bucket, locate, delivery }),
         prepare: (items) => putTestObjects(client, bucket, items),
         meta: (path) => ({ storageKey: path }),
-        key: (path) => path,
       });
     });
   });

@@ -75,8 +75,8 @@ not preclude it.
 
 ### Deliveries
 
-- `stream`: a lazy `open()`, called only on GET, with `contentType`,
-  `contentLength`, and optional `etag` and `lastModified`.
+- `stream`: a lazy `open()`, called only on GET, with `contentLength`,
+  optional `etag` and `lastModified`, and for Content a `contentType`.
 - `path`: an absolute `path` the library opens, with the same headers as
   `stream`. There is no nginx acceleration.
 - `redirect`: a `url`. HEAD answers 302 too, and `noRedirect` behaves as
@@ -84,7 +84,8 @@ not preclude it.
 - `json`, for Metadata only: a `value` the library serialises once, setting
   the length and a strong ETag from those bytes. This is how generated or
   redacted Metadata is served.
-- The library sends Metadata as `application/ld+json` whatever the delivery.
+- The library sends Metadata as `application/ld+json` whatever the delivery,
+  so Metadata deliveries carry no `contentType`.
   It sets `Content-Disposition` on `stream` and `path` deliveries; a
   redirecting backend bakes `context.contentDisposition` into its URL.
 - Storage is the source of truth for size, ETag and Last-Modified, so a
@@ -102,9 +103,9 @@ not preclude it.
 ### Where things live
 
 - The consumer decides. There is no built-in layout, since entity ids don't
-  map to paths. Each stored reference backend takes a `locate` option,
-  `locate(entity)` for Metadata and `locate(file, entity)` for Content, which
-  returns, or resolves to, a Storage key or `null`.
+  map to paths. Each stored reference backend takes a `locate` option, the
+  object `{ metadata?(entity), content?(file, entity) }`, whose functions
+  return, or resolve to, a Storage key or `null`.
 - Without `locate`, each backend reads a default key from `meta`:
 
   | Backend   | Content                                       | Metadata                                                                             |

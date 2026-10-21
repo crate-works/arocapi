@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { storedItems as contractItems, crate } from '../src/test/helpers/storedItems.ts';
 
 const out = join(import.meta.dirname, '../src/test/fixtures/ocfl');
 
@@ -17,7 +18,9 @@ type Damage =
   /** inventory.json isn't JSON */
   | 'unparseable'
   /** A manifest content path leaves the object root */
-  | 'escaping-manifest';
+  | 'escaping-manifest'
+  /** A manifest content path names a directory */
+  | 'directory-manifest';
 
 type ObjectSpec = {
   id: string;
@@ -94,6 +97,11 @@ const writeObject = (root: string, { id, versions, mutableHead, damage }: Object
   if (damage === 'escaping-manifest') {
     for (const paths of Object.values(inventory.manifest as Record<string, string[]>)) {
       paths[0] = `../${paths[0]}`;
+    }
+  }
+  if (damage === 'directory-manifest') {
+    for (const paths of Object.values(inventory.manifest as Record<string, string[]>)) {
+      paths[0] = dirname(paths[0] as string);
     }
   }
   writeInventory(root, inventory);
@@ -221,13 +229,7 @@ const customLayout: Layout = {
   map: (id) => `objects/${id.split('/').at(-1)}`,
 };
 
-// Must match storedItems in src/test/helpers/storageBackendContract.ts
-const crate = JSON.stringify({ '@context': 'https://w3id.org/ro/crate/1.2/context', '@graph': [{ name: 'Ŋaŋa' }] });
-const storedItems: State = {
-  'collection/ro-crate-metadata.json': crate,
-  'collection/item/greeting.wav': 'RIFF greeting bytes',
-  'collection/item/notes.bin': 'speaker,line\nŋaŋa,hello\n',
-};
+const storedItems: State = Object.fromEntries(contractItems.map(({ path, body }) => [path, body]));
 
 const itemCrate = JSON.stringify({ '@context': 'https://w3id.org/ro/crate/1.2/context', '@graph': [{ name: 'Item' }] });
 const single = (state: State): Version[] => [{ message: 'Initial', state }];
@@ -255,6 +257,11 @@ writeStorageRoot({
     { id: 'https://example.com/storage/bad-sidecar', versions: single(storedItems), damage: 'sidecar' },
     { id: 'https://example.com/storage/unparseable', versions: single(storedItems), damage: 'unparseable' },
     { id: 'https://example.com/storage/escaping-manifest', versions: single(storedItems), damage: 'escaping-manifest' },
+    {
+      id: 'https://example.com/storage/directory-manifest',
+      versions: single(storedItems),
+      damage: 'directory-manifest',
+    },
   ],
 });
 
@@ -268,7 +275,7 @@ writeStorageRoot({
 const layoutIds = {
   'flat-direct': ['object-01', '..hor_rib:lé-$id'],
   'hash-and-id-n-tuple': ['object-01', '..Hor/rib:lè-$id', "info:fedora/Object~01!'()*", 'abcdefghij'.repeat(11)],
-  'hashed-n-tuple': ['object-01', '..hor/rib:le-$id'],
+  'hashed-n-tuple': ['object-01', '..hor/rib:le-$id', '/rooted/id', 'up/../../id'],
 };
 
 for (const [dir, layout] of [

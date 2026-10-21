@@ -1,9 +1,9 @@
-import { setTimeout as sleep } from 'node:timers/promises';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mockReset } from 'vitest-mock-extended';
-import type { Entity, File } from '../../generated/prisma/client.js';
+import type { File } from '../../generated/prisma/client.js';
 import { prisma } from '../../test/helpers/fastify.js';
+import { entityRow, fileRow } from '../../test/helpers/rows.js';
 import { putTestObjects, testS3Client } from '../../test/helpers/s3.js';
 import { buildStorageApp } from '../../test/helpers/storageApp.js';
 import type { ContentContext, RedirectDelivery } from '../backend.js';
@@ -11,29 +11,14 @@ import { S3Storage } from './s3.js';
 
 const bucket = 's3-storage-test';
 
-const entity: Entity = {
+const entity = entityRow({
   id: 'http://example.com/item.wav',
   name: 'item.wav',
-  description: '',
   entityType: 'http://schema.org/MediaObject',
-  memberOf: null,
-  rootCollection: null,
-  metadataLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
-  contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
   meta: { storageKey: 'item/ro-crate-metadata.json' },
-  createdAt: new Date(),
-  updatedAt: new Date(),
-};
+});
 
-const file: File = {
-  id: entity.id,
-  filename: 'item.wav',
-  mediaType: 'audio/wav',
-  size: BigInt(1),
-  meta: { storageKey: 'item/item.wav' },
-  createdAt: new Date(),
-  updatedAt: new Date(),
-};
+const file = fileRow({ id: entity.id, meta: { storageKey: 'item/item.wav' } });
 
 const context = { contentDisposition: 'attachment; filename="field recording.wav"' } as ContentContext;
 
@@ -62,10 +47,11 @@ describe('S3Storage', () => {
     });
 
     it('presigns for expiresIn seconds, after which the URL is refused', async () => {
-      const url = await presign(S3Storage({ client, bucket, expiresIn: 1 }));
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(Date.now() - 60_000);
+      const url = await presign(S3Storage({ client, bucket, expiresIn: 1 })).finally(() => vi.useRealTimers());
 
       expect(new URL(url).searchParams.get('X-Amz-Expires')).toBe('1');
-      await sleep(2500);
       expect((await fetch(url)).status).toBe(403);
     });
 
@@ -139,7 +125,7 @@ describe('S3Storage', () => {
     send.mockRestore();
   });
 
-  it.each([42, ['item.wav'], { key: 'item.wav' }])(
+  it.each([42, ['item.wav'], { key: 'item.wav' }, null])(
     'throws naming the entity and key when storageKey is %j',
     async (storageKey) => {
       const storage = S3Storage({ client, bucket });

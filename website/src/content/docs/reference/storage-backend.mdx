@@ -49,15 +49,15 @@ disagree.
 
 | `type`     | Fields                                   | Response                                                                                   |
 | ---------- | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `stream`   | `open`, `contentType`, `contentLength`, `etag?`, `lastModified?` | 200 with the stream `open()` returns. `open` is called only on `GET`, never on `HEAD`. |
-| `path`     | `path`, `contentType`, `contentLength`, `etag?`, `lastModified?` | 200 with the file at the absolute `path`, which arocapi opens on `GET`.         |
+| `stream`   | `open`, `contentLength`, `etag?`, `lastModified?`, and for Content `contentType` | 200 with the stream `open()` returns. `open` is called only on `GET`, never on `HEAD`. |
+| `path`     | `path`, `contentLength`, `etag?`, `lastModified?`, and for Content `contentType` | 200 with the file at the absolute `path`, which arocapi opens on `GET`.         |
 | `redirect` | `url`                                    | 302 to `url` for `GET` and `HEAD`. `/file/:id?noRedirect=true` answers 200 `{ "location": url }` instead. |
 | `json`     | `value`                                  | Metadata only: 200 with `value` serialised once, and the Content-Length and a strong ETag from those bytes. |
 
 `stream` and `path` deliveries set `Content-Type`, `Content-Length`, `ETag` and `Last-Modified`, and on `/file/:id`
 `Content-Disposition`. Take them from storage, not the database, so a stale `File.size` can't produce a wrong header.
-Metadata is always sent as `application/ld+json`, whatever `contentType` says. A `content` half returning `json` is a
-type error.
+Metadata is always sent as `application/ld+json`, so its deliveries carry no `contentType`. A `content` half returning
+`json` is a type error.
 
 ## Errors
 

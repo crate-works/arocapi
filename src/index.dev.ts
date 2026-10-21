@@ -8,6 +8,7 @@ import arocapi, {
   AllPublicAccess,
   AllVisibleEntityFilter,
   AllVisibleSearchFilter,
+  type DirectoryStorageMeta,
   type EntityTransformer,
   type FieldDeclarations,
   type MetadataSource,
@@ -15,6 +16,7 @@ import arocapi, {
 import { PrismaClient } from './generated/prisma/client.js';
 import { OpenSearchBackend } from './search/opensearch/opensearch.js';
 import { DirectoryStorage } from './storage/directory/directory.js';
+import { metaString, safeKey } from './storage/location.js';
 
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is not set');
@@ -39,16 +41,18 @@ const fields = {
   location: { type: 'geo' },
 } satisfies FieldDeclarations;
 
-const directory = DirectoryStorage({ root: 'example/data' });
+const root = 'example/data';
+const directory = DirectoryStorage({ root });
 
 // File entities share their item's crate, with its root remapped to the file
 const metadata: MetadataSource = async (entity, context) => {
-  const { storagePath, remapRootTo } = (entity.meta ?? {}) as { storagePath?: string; remapRootTo?: string };
+  const storagePath = metaString<DirectoryStorageMeta>(entity.meta, entity.id, 'storagePath');
+  const remapRootTo = metaString<{ remapRootTo: string }>(entity.meta, entity.id, 'remapRootTo');
   if (!remapRootTo || !storagePath) {
     return directory.metadata(entity, context);
   }
 
-  const rocrate = JSON.parse(await readFile(join('example/data', storagePath), 'utf-8')) as {
+  const rocrate = JSON.parse(await readFile(join(root, safeKey(storagePath, entity.id)), 'utf-8')) as {
     '@graph'?: Array<{ '@id': string; about?: { '@id': string } }>;
   };
   const descriptor = rocrate['@graph']?.find((node) => node['@id'] === 'ro-crate-metadata.json');

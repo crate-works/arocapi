@@ -8,6 +8,7 @@ import arocapi, {
   type ContentSource,
   type DirectoryStorageMeta,
   type EntityVisibilityFilter,
+  type MetadataDelivery,
   type MetadataSource,
   type OcflLocation,
   type OcflStorageMeta,
@@ -55,6 +56,17 @@ export const metadata: MetadataSource = async (entity: Entity) => ({ type: 'json
 
 // @ts-expect-error a content half can't return json
 export const jsonContent: ContentSource = () => ({ type: 'json', value: {} });
+
+// @ts-expect-error a content path names its Content-Type
+export const untypedContent: ContentSource = () => ({ type: 'path', path: '/data/a.wav', contentLength: 1 });
+
+export const typedMetadata = {
+  type: 'path',
+  path: '/data/a.json',
+  contentLength: 1,
+  // @ts-expect-error Metadata is always application/ld+json, so its deliveries name no Content-Type
+  contentType: 'text/plain',
+} satisfies MetadataDelivery;
 
 // Mixing halves from different sources
 export const storage: StorageBackend = { metadata, content: DirectoryStorage({ root: '/data' }).content };

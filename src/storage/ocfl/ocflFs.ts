@@ -1,4 +1,5 @@
-// Workarounds for @ocfl/ocfl-fs gaps, to delete under https://github.com/crate-works/arocapi/issues/117
+// Workarounds for @ocfl/ocfl-fs gaps, each removable once upstream ships types, keeps a given layout and reports an
+// unknown one distinctly in loadStorage, maps hashed ids without loadStorage, and encapsulates 0003 ids per spec
 import { dirname, join } from 'node:path';
 // @ts-expect-error @ocfl/ocfl-fs ships no types, so the little used here is typed below
 import ocfl from '@ocfl/ocfl-fs';

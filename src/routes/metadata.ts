@@ -51,10 +51,15 @@ const metadataRoute: FastifyPluginAsync<MetadataRouteOptions> = async (fastify, 
       const delivery = await metadata(entity, context);
 
       if (!delivery) {
-        return reply.code(404).send(createNotFoundError('The requested RO-Crate metadata was not found', id));
+        return reply.code(404).send(createNotFoundError('The requested Metadata was not found', id));
       }
 
-      return sendDelivery(request, reply, delivery, { contentType: 'application/ld+json' });
+      return sendDelivery(
+        request,
+        reply,
+        delivery.type === 'redirect' ? delivery : { ...delivery, contentType: 'application/ld+json' },
+        { json: true },
+      );
     },
   });
 };

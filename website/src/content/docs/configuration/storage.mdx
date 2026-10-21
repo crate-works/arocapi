@@ -65,7 +65,7 @@ Without `locate`, Metadata is read from `Entity.meta.storagePath` and Content fr
 key names the RO-Crate metadata file itself, so several entities can share one.
 
 - A missing key, a `locate` returning `null`, or no file at the path is a 404.
-- A `storagePath` that isn't a string is a 500, logged with the entity id and key.
+- A `storagePath` that isn't a string, `null` included, is a 500, logged with the entity id and key.
 - A key that is absolute or has a `..` segment is a 500, before anything is read. An absolute `storagePath` written
   for arocapi 4 fails this way rather than being read as relative.
 
@@ -119,8 +119,11 @@ Without `locate`, Metadata is read from `Entity.meta.storageKey` and Content fro
   `GetObject` and `If-Match`; an object replaced in between is a 500 rather than a mix of two versions.
 
 A missing key, a `locate` returning `null`, or no object at the key (on `stream`, and for Metadata) is a 404. A
-`storageKey` that isn't a string, or a key that is absolute or has a `..` segment, is a 500 before any request or
+`storageKey` that isn't a string (`null` included), or a key that is absolute or has a `..` segment, is a 500 before any request or
 presign. Any other error from the store is a logged 500.
+
+S3 answers a missing key with 403, not 404, unless the credentials allow `s3:ListBucket` on the bucket, so grant it
+for missing objects to be 404s.
 
 ## `OcflStorage`
 
@@ -158,10 +161,10 @@ object id and `path` a logical path in the object's head version.
 - Each request loads the object's inventory, with no cache, and serves the head version. Older versions and a
   mutable HEAD (extension 0005) are never served.
 - A missing key, a `locate` returning `null`, an object that doesn't exist or a logical path not in head is a 404.
-- An `ocflObject` or `ocflPath` that isn't a string is a 500, logged with the entity id and key, as is a logical path
-  that is absolute or has a `..` segment.
-- An inventory that fails its sidecar digest check or won't parse is a 500, as is an `objectRoot` result outside the
-  storage root or a manifest path outside its object. A request made while a writer swaps an inventory may also get a 500.
+- An `ocflObject` or `ocflPath` that isn't a string, `null` included, is a 500, logged with the entity id and key, as
+  is a logical path that is absolute or has a `..` segment. An object id is any string, mapped by the storage layout.
+- An inventory that fails its sidecar digest check or won't parse is a 500, as is an object root outside the storage
+  root, or a manifest path outside its object or not naming a file. A request made while a writer swaps an inventory may also get a 500.
 
 Content-Length and Last-Modified come from the file on disk, with a strong ETag from its inventory digest.
 Content-Type comes from `File.mediaType`; Metadata is always `application/ld+json`.

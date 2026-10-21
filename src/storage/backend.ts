@@ -2,14 +2,12 @@ import type { Readable } from 'node:stream';
 import type { Entity, File } from '../generated/prisma/client.js';
 import type { RequestContext } from '../types/context.js';
 
-type MaybePromise<T> = T | Promise<T>;
+export type MaybePromise<T> = T | Promise<T>;
 
 /**
  * Headers a `stream` or `path` delivery carries, read from storage rather than the database
  */
 export type DeliveryHeaders = {
-  /** Ignored for Metadata, which is always `application/ld+json` */
-  contentType: string;
   contentLength: number;
   etag?: string;
   lastModified?: Date;
@@ -27,9 +25,13 @@ export type RedirectDelivery = { type: 'redirect'; url: string };
 /** A value the library serialises once, with the length and a strong ETag from those bytes */
 export type JsonDelivery = { type: 'json'; value: unknown };
 
-export type ContentDelivery = StreamDelivery | PathDelivery | RedirectDelivery;
+/** Content's `stream` and `path` deliveries name their Content-Type; Metadata's is always `application/ld+json` */
+export type ContentDelivery =
+  | (StreamDelivery & { contentType: string })
+  | (PathDelivery & { contentType: string })
+  | RedirectDelivery;
 
-export type MetadataDelivery = ContentDelivery | JsonDelivery;
+export type MetadataDelivery = StreamDelivery | PathDelivery | RedirectDelivery | JsonDelivery;
 
 export type ContentContext = RequestContext & {
   /** The `Content-Disposition` the library sends on `stream` and `path` deliveries, for baking into a redirect */

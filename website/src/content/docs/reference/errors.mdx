@@ -65,7 +65,7 @@ For direct requests to `/entity/:id`, `/entity/:id/metadata` and `/file/:id`:
 | 403    | You do not have permission to access this resource   | refusals                    |
 | 404    | The requested entity was not found                   | `/entity/:id`, `/entity/:id/metadata` |
 | 404    | The requested file was not found                     | `/file/:id`                 |
-| 404    | The requested RO-Crate metadata was not found        | `/entity/:id/metadata`, `storage.metadata` returned `null` |
+| 404    | The requested Metadata was not found                 | `/entity/:id/metadata`, `storage.metadata` returned `null` |
 | 404    | The requested file could not be retrieved            | `/file/:id`, `storage.content` returned `null` |
 | 404    | The requested resource was not found                 | unknown path                |
 | 400    | The request parameters are invalid                   | validation                  |

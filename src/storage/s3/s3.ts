@@ -1,8 +1,9 @@
 import type { Readable } from 'node:stream';
 import { GetObjectCommand, HeadObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import type { StorageBackend, StorageLocate, StreamDelivery } from '../backend.js';
-import { metaString, safeKey } from '../location.js';
+import type { S3StorageMeta, StorageBackend, StorageLocate, StreamDelivery } from '../backend.js';
+import { keyLocator } from '../location.js';
+import { nullIfMissing, withContentType } from '../results.js';
 
 export type S3StorageOptions = {
   /** Your S3 client; arocapi never configures or destroys it */
@@ -16,7 +17,7 @@ export type S3StorageOptions = {
   expiresIn?: number;
 };
 
-const MISSING = new Set(['NoSuchKey', 'NotFound']);
+const MISSING: ReadonlySet<string> = new Set(['NoSuchKey', 'NotFound']);
 
 /**
  * Serve Metadata and Content from an S3-compatible bucket, found from `Entity.meta.storageKey` and `File.meta.storageKey`
@@ -28,21 +29,20 @@ export const S3Storage = ({
   delivery = 'redirect',
   expiresIn = 300,
 }: S3StorageOptions): StorageBackend => {
-  const stream = async (key: string, contentType: string): Promise<StreamDelivery | null> => {
-    const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key })).catch((error: Error) => {
-      if (MISSING.has(error.name)) {
-        return null;
-      }
+  const keys = keyLocator<S3StorageMeta>(locate, 'storageKey');
 
-      throw error;
-    });
+  const stream = async (key: string | null): Promise<StreamDelivery | null> => {
+    if (key === null) {
+      return null;
+    }
+
+    const head = await nullIfMissing(client.send(new HeadObjectCommand({ Bucket: bucket, Key: key })), MISSING);
     if (!head) {
       return null;
     }
 
     return {
       type: 'stream',
-      contentType,
       contentLength: Number(head.ContentLength),
       etag: head.ETag,
       lastModified: head.LastModified,
@@ -56,20 +56,14 @@ export const S3Storage = ({
   };
 
   return {
-    metadata: async (entity) => {
-      const key = locate.metadata ? await locate.metadata(entity) : metaString(entity.meta, entity.id, 'storageKey');
-
-      return key === null ? null : stream(safeKey(key, entity.id), 'application/ld+json');
-    },
+    metadata: async (entity) => stream(await keys.metadata(entity)),
     content: async (file, entity, { contentDisposition }) => {
-      const key = locate.content ? await locate.content(file, entity) : metaString(file.meta, file.id, 'storageKey');
-      if (key === null) {
-        return null;
-      }
-
-      const Key = safeKey(key, file.id);
+      const Key = await keys.content(file, entity);
       if (delivery === 'stream') {
-        return stream(Key, file.mediaType);
+        return withContentType(await stream(Key), file.mediaType);
+      }
+      if (Key === null) {
+        return null;
       }
 
       const command = new GetObjectCommand({
