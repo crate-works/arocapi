@@ -7,8 +7,10 @@ import { AllVisibleSearchFilter, LicenceAccess } from '../app.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { OpenSearchBackend } from '../search/opensearch/opensearch.js';
 import { PostgresBackend } from '../search/postgres/postgres.js';
+import type { OcflLocation } from '../storage/backend.js';
 import { DirectoryStorage } from '../storage/directory/directory.js';
 import { EntityMetaMetadata } from '../storage/entity-meta/entity-meta.js';
+import { OcflStorage } from '../storage/ocfl/ocfl.js';
 import { S3Storage } from '../storage/s3/s3.js';
 import type { AuthorisedEntity, AuthorisedFile } from '../transformers/default.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
@@ -1144,6 +1146,18 @@ describe('Storage backends', () => {
         meta: (path) => ({ storageKey: path }),
         key: (path) => path,
       });
+    });
+  });
+
+  describe('OcflStorage', () => {
+    const root = join(import.meta.dirname, 'fixtures/ocfl/path-direct');
+    const object = 'https://example.com/storage/contract';
+
+    describeStorageContract<OcflLocation>('OcflStorage', {
+      create: (locate) => OcflStorage({ root, locate }),
+      prepare: async () => {},
+      meta: (path) => ({ ocflObject: object, ocflPath: path }),
+      key: (path) => ({ object, path }),
     });
   });
 });

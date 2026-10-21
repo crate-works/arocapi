@@ -30,10 +30,12 @@ these keys when you index:
 | [`DirectoryStorage`](/configuration/storage/#directorystorage) | `File.meta.storagePath` | `Entity.meta.storagePath` | `locate.content(file, entity)`, `locate.metadata(entity)` |
 | [`EntityMetaMetadata`](/configuration/storage/#entitymetametadata) | none (Metadata only) | `Entity.meta.rocrate`, the RO-Crate metadata object itself | `key` |
 | [`S3Storage`](/configuration/storage/#s3storage)       | `File.meta.storageKey`  | `Entity.meta.storageKey`  | `locate.content(file, entity)`, `locate.metadata(entity)` |
+| [`OcflStorage`](/configuration/storage/#ocflstorage) | `File.meta.ocflObject` + `File.meta.ocflPath` | `Entity.meta.ocflObject` + `Entity.meta.ocflPath` (default `ro-crate-metadata.json`) | `locate.content(file, entity)`, `locate.metadata(entity)`, returning `{ object, path }` |
 
 Keys are relative to the backend's root or bucket. A key that isn't a string, or that is absolute or has a `..`
 segment, is a 500. `EntityMetaMetadata` reads no key: the value is the Metadata, and one that isn't a JSON object is a
-500. The root exports a TypeScript type for each shape, such as `DirectoryStorageMeta`:
+500. OCFL keys are an object id and a logical path inside its head version, not a path on disk. The root exports a
+TypeScript type for each shape, such as `DirectoryStorageMeta`:
 
 <Code code={entityMetaStoragePath} lang="ts" />
 

@@ -17,6 +17,7 @@ import arocapi, {
 import { OpenSearchBackend } from 'arocapi/search/opensearch';
 import { DirectoryStorage } from 'arocapi/storage/directory';
 import { EntityMetaMetadata } from 'arocapi/storage/entity-meta';
+import { OcflStorage } from 'arocapi/storage/ocfl';
 import { S3Storage } from 'arocapi/storage/s3';
 import Fastify from 'fastify';
 import type { Entity, File, Prisma, PrismaClient } from './generated/prisma/client.ts';
@@ -74,6 +75,16 @@ export const bucket: StorageBackend = S3Storage({ client: s3, bucket: 'archive',
 
 // @ts-expect-error S3 Content is a redirect or a stream
 export const badDelivery = S3Storage({ client: s3, bucket: 'archive', delivery: 'path' });
+
+// OCFL's locate returns an object id and a logical path
+export const ocfl: Promise<StorageBackend> = OcflStorage({
+  root: '/ocfl',
+  objectRoot: async (id: string) => encodeURIComponent(id),
+  locate: { content: (file: File, entity: Entity) => ({ object: entity.id, path: file.filename }) },
+});
+
+// @ts-expect-error locate returns an OcflLocation, not a path
+export const ocflPathLocate = OcflStorage({ root: '/ocfl', locate: { metadata: () => 'ro-crate-metadata.json' } });
 
 // The meta shapes the reference backends read are what an indexer writes
 export const metas: Prisma.InputJsonObject[] = [

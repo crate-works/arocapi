@@ -194,6 +194,9 @@ importers:
       '@commitlint/config-conventional':
         specifier: ^21.2.4
         version: 21.2.4
+      '@ocfl/ocfl-fs':
+        specifier: ^0.4.0
+        version: 0.4.0
       '@opensearch-project/opensearch':
         specifier: ^3.9.0
         version: 3.9.0(supports-color@10.2.2)
@@ -1188,6 +1191,13 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1 || ^2.0.0-alpha.4
       '@emnapi/runtime': ^1.7.1 || ^2.0.0-alpha.4
+
+  '@ocfl/ocfl-fs@0.4.0':
+    resolution: {integrity: sha512-eugqs7N5J7OdvMorMLji60DQfORRs2Ef39SITuVp0o80ZKdcuEctltl+OosaHY/rA1YJdcXgwSfGGWjsLtg0pw==}
+
+  '@ocfl/ocfl@0.4.0':
+    resolution: {integrity: sha512-c9LpGa/V+iYYNmLVIYF1SThx9SPMohe1Y8QsTeyKIyBQAOgMzb45my3HxVkTBA+Gkh+hRglx9adu2Pv8+F8RAg==}
+    engines: {node: '>=18.0.0'}
 
   '@octokit/auth-token@6.0.0':
     resolution: {integrity: sha512-P4YJBPdPSpWTQ1NU4XYdvHvXJJDxM6YwpS0FZHRgP7YFkdVxsWcpWGy/NVqlAA7PcPCnMacXlRm1y2PFZRWL/w==}
@@ -3284,6 +3294,9 @@ packages:
     resolution: {integrity: sha512-CsNUt5x9LUdx6hnk/E2SZLsDyvfqANZSUq4+D3D8RzDJ2M+HDTIkF60ibS1vHaK55vzgiZw1bEPFG9yH7l33wA==}
     engines: {node: '>=12'}
 
+  hash-wasm@4.12.0:
+    resolution: {integrity: sha512-+/2B2rYLb48I/evdOIhP+K/DD2ca2fgBjp6O+GBEnCDk2e4rpeXIK8GvIyRPjTezgmWn9gmKwkQjjx6BtqDHVQ==}
+
   hast-util-embedded@3.0.0:
     resolution: {integrity: sha512-naH8sld4Pe2ep03qqULEtvYr7EjrLK2QHY8KJR6RJkTUjPGObe1vnx585uzem2hGra+s1q08DZZpfgDVYRbaXA==}
 
@@ -3514,6 +3527,9 @@ packages:
   jiti@2.7.0:
     resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==}
     hasBin: true
+
+  js-sha512@0.9.0:
+    resolution: {integrity: sha512-mirki9WS/SUahm+1TbAPkqvbCiCfOAAsyXeHxK1UkullnJVVqoJG2pL9ObvT05CN+tM7fxhfYm0NbXn+1hWoZg==}
 
   js-tokens@10.0.0:
     resolution: {integrity: sha512-lM/UBzQmfJRo9ABXbPWemivdCW8V2G8FHaHdypQaIy523snUjog0W71ayWXTjiR+ixeMyVHN2XcpnTd/liPg/Q==}
@@ -6180,6 +6196,15 @@ snapshots:
       '@tybys/wasm-util': 0.10.4
     optional: true
 
+  '@ocfl/ocfl-fs@0.4.0':
+    dependencies:
+      '@ocfl/ocfl': 0.4.0
+
+  '@ocfl/ocfl@0.4.0':
+    dependencies:
+      hash-wasm: 4.12.0
+      js-sha512: 0.9.0
+
   '@octokit/auth-token@6.0.0': {}
 
   '@octokit/core@7.0.5':
@@ -8335,6 +8360,8 @@ snapshots:
 
   has-flag@5.0.1: {}
 
+  hash-wasm@4.12.0: {}
+
   hast-util-embedded@3.0.0:
     dependencies:
       '@types/hast': 3.0.5
@@ -8600,6 +8627,8 @@ snapshots:
   java-properties@1.0.2: {}
 
   jiti@2.7.0: {}
+
+  js-sha512@0.9.0: {}
 
   js-tokens@10.0.0: {}
 

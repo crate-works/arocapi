@@ -9,13 +9,14 @@ import { Code } from '@astrojs/starlight/components';
 import storageDirectory from '@examples/configuration/storage-directory.ts?raw';
 import storageEntityMeta from '@examples/configuration/storage-entity-meta.ts?raw';
 import storageMixing from '@examples/configuration/storage-mixing.ts?raw';
+import storageOcfl from '@examples/configuration/storage-ocfl.ts?raw';
 import storageS3 from '@examples/configuration/storage-s3.ts?raw';
 
 `GET` and `HEAD /entity/:id/metadata` and `/file/:id` go through a storage backend. arocapi calls it only after the
 entity is Visible and the request has access, so it doesn't need its own checks (see the [request
 lifecycle](/concepts/request-lifecycle/#metadata-and-content-routes)). arocapi ships
-[`DirectoryStorage`](#directorystorage), the Metadata half [`EntityMetaMetadata`](#entitymetametadata) and
-[`S3Storage`](#s3storage), or you can [write your own](/reference/storage-backend/).
+[`DirectoryStorage`](#directorystorage), the Metadata half [`EntityMetaMetadata`](#entitymetametadata),
+[`S3Storage`](#s3storage) and [`OcflStorage`](#ocflstorage), or you can [write your own](/reference/storage-backend/).
 [Storage](/strategies/storage/) compares ways to serve bytes.
 
 | Option    | Required | Type             | Default | Purpose                                                    |
@@ -120,6 +121,42 @@ Without `locate`, Metadata is read from `Entity.meta.storageKey` and Content fro
 A missing key, a `locate` returning `null`, or no object at the key (on `stream`, and for Metadata) is a 404. A
 `storageKey` that isn't a string, or a key that is absolute or has a `..` segment, is a 500 before any request or
 presign. Any other error from the store is a logged 500.
+
+## `OcflStorage`
+
+Serves both halves from the head version of objects in an [OCFL](https://ocfl.io) storage root on local disk, through
+[`@ocfl/ocfl-fs`](https://www.npmjs.com/package/@ocfl/ocfl-fs). Install it alongside arocapi (`pnpm add
+@ocfl/ocfl-fs`); it is an optional peer dependency, loaded only by `arocapi/storage/ocfl`. `@ocfl/ocfl-fs` is
+licensed GPL-3.0-or-later: the licence applies to your app if you use this backend and distribute it.
+
+`OcflStorage` is async, because it reads the storage root at startup:
+
+<Code code={storageOcfl} lang="ts" />
+
+| Option       | Required | Type                      | Default                                 | Purpose                                         |
+| ------------ | -------- | ------------------------- | --------------------------------------- | ----------------------------------------------- |
+| `root`       | yes      | string                    | none                                    | The OCFL storage root.                          |
+| `objectRoot` | no       | `(id) => string`          | the layout in `ocfl_layout.json`        | Where an object sits, relative to `root`; may be async. |
+| `locate`     | no       | `{ metadata?, content? }` | read `meta.ocflObject` and `meta.ocflPath` | Where each item is: `metadata(entity)` and `content(file, entity)` return, or resolve to, an `OcflLocation` `{ object, path }` or `null`. |
+
+At startup `OcflStorage` reads `ocfl_layout.json` and its extension config. It implements LDaCA's
+`000N-path-direct-storage-layout`. For any other layout, or a root without `ocfl_layout.json`, pass `objectRoot`, or
+it throws. It also throws if `root` isn't an OCFL storage root.
+
+Without `locate`, Metadata is read from `Entity.meta.ocflObject` and `Entity.meta.ocflPath`, which defaults to
+`ro-crate-metadata.json`, and Content from `File.meta.ocflObject` and `File.meta.ocflPath`. `object` is the OCFL
+object id and `path` a logical path in the object's head version.
+
+- Each request loads the object's inventory, with no cache, and serves the head version. Older versions and a
+  mutable HEAD (extension 0005) are never served.
+- A missing key, a `locate` returning `null`, an object that doesn't exist or a logical path not in head is a 404.
+- An `ocflObject` or `ocflPath` that isn't a string is a 500, logged with the entity id and key, as is a logical path
+  that is absolute or has a `..` segment.
+- An inventory that fails its sidecar digest check or won't parse is a 500, as is an `objectRoot` result outside the
+  storage root or a manifest path outside its object. A request made while a writer swaps an inventory may also get a 500.
+
+Content-Length and Last-Modified come from the file on disk, with a strong ETag from its inventory digest.
+Content-Type comes from `File.mediaType`; Metadata is always `application/ld+json`.
 
 ## Query parameters
 

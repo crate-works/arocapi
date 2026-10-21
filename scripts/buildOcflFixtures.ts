@@ -1,0 +1,212 @@
+// Builds the OCFL storage roots under src/test/fixtures/ocfl with node:fs and node:crypto alone, so the fixtures
+// don't depend on the library under test. Run with `pnpm fixtures:ocfl` and commit the output.
+import { createHash } from 'node:crypto';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+
+const out = join(import.meta.dirname, '../src/test/fixtures/ocfl');
+
+/** Logical path → bytes */
+type State = Record<string, string>;
+
+type Version = { message: string; state: State };
+
+type Damage =
+  /** The sidecar records a digest that isn't the inventory's */
+  | 'sidecar'
+  /** inventory.json isn't JSON */
+  | 'unparseable'
+  /** A manifest content path leaves the object root */
+  | 'escaping-manifest';
+
+type ObjectSpec = {
+  id: string;
+  versions: Version[];
+  /** A mutable HEAD revision (extension 0005) on top of the last version, which readers of head must ignore */
+  mutableHead?: State;
+  damage?: Damage;
+};
+
+type Layout = {
+  extension: string;
+  description: string;
+  /** Written to extensions/<extension>/config.json */
+  config?: Record<string, unknown>;
+  map: (id: string) => string;
+};
+
+type StorageRootSpec = { dir: string; layout: Layout; objects: ObjectSpec[] };
+
+const sha512 = (data: string) => createHash('sha512').update(data).digest('hex');
+
+const write = (path: string, data: string) => {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, data);
+};
+
+/** Write a pretty inventory and its sidecar, returning the bytes */
+const writeInventory = (dir: string, inventory: unknown) => {
+  const text = `${JSON.stringify(inventory, null, 2)}\n`;
+  write(join(dir, 'inventory.json'), text);
+  write(join(dir, 'inventory.json.sha512'), `${sha512(text)}  inventory.json\n`);
+};
+
+const created = (version: number) => new Date(Date.UTC(2025, 0, version)).toISOString();
+
+const writeObject = (root: string, { id, versions, mutableHead, damage }: ObjectSpec) => {
+  write(join(root, '0=ocfl_object_1.1'), 'ocfl_object_1.1\n');
+
+  const manifest: Record<string, string[]> = {};
+  const inventoryVersions: Record<string, unknown> = {};
+  let inventory: Record<string, unknown> = {};
+
+  versions.forEach(({ message, state }, index) => {
+    const name = `v${index + 1}`;
+    const digests: Record<string, string[]> = {};
+    for (const [logicalPath, body] of Object.entries(state)) {
+      const digest = sha512(body);
+      if (!manifest[digest]) {
+        const contentPath = `${name}/content/${logicalPath}`;
+        write(join(root, contentPath), body);
+        manifest[digest] = [contentPath];
+      }
+      digests[digest] = [...(digests[digest] ?? []), logicalPath];
+    }
+    inventoryVersions[name] = {
+      created: created(index + 1),
+      message,
+      user: { name: 'arocapi fixtures' },
+      state: digests,
+    };
+    inventory = {
+      id,
+      type: 'https://ocfl.io/1.1/spec/#inventory',
+      digestAlgorithm: 'sha512',
+      head: name,
+      contentDirectory: 'content',
+      manifest: structuredClone(manifest),
+      versions: structuredClone(inventoryVersions),
+    };
+    writeInventory(join(root, name), inventory);
+  });
+
+  if (damage === 'escaping-manifest') {
+    for (const paths of Object.values(inventory.manifest as Record<string, string[]>)) {
+      paths[0] = `../${paths[0]}`;
+    }
+  }
+  writeInventory(root, inventory);
+
+  if (damage === 'sidecar') {
+    write(join(root, 'inventory.json.sha512'), `${sha512('not the inventory')}  inventory.json\n`);
+  }
+  if (damage === 'unparseable') {
+    const text = '{ "id": "truncated",';
+    write(join(root, 'inventory.json'), text);
+    write(join(root, 'inventory.json.sha512'), `${sha512(text)}  inventory.json\n`);
+  }
+
+  if (mutableHead) {
+    const head = join(root, 'extensions/0005-mutable-head');
+    write(join(head, 'config.json'), `${JSON.stringify({ extensionName: '0005-mutable-head' }, null, 2)}\n`);
+    const headManifest = structuredClone(manifest);
+    const state: Record<string, string[]> = {};
+    for (const [logicalPath, body] of Object.entries(mutableHead)) {
+      const digest = sha512(body);
+      if (!headManifest[digest]) {
+        const contentPath = `extensions/0005-mutable-head/head/content/r1/${logicalPath}`;
+        write(join(root, contentPath), body);
+        headManifest[digest] = [contentPath];
+      }
+      state[digest] = [...(state[digest] ?? []), logicalPath];
+    }
+    const next = `v${versions.length + 1}`;
+    writeInventory(join(head, 'head'), {
+      ...inventory,
+      head: next,
+      manifest: headManifest,
+      versions: {
+        ...inventoryVersions,
+        [next]: { created: created(versions.length + 1), message: 'Unreleased', state },
+      },
+    });
+  }
+};
+
+const writeStorageRoot = ({ dir, layout, objects }: StorageRootSpec) => {
+  const root = join(out, dir);
+  rmSync(root, { recursive: true, force: true });
+  write(join(root, '0=ocfl_1.1'), 'ocfl_1.1\n');
+  write(
+    join(root, 'ocfl_layout.json'),
+    `${JSON.stringify({ extension: layout.extension, description: layout.description }, null, 2)}\n`,
+  );
+  if (layout.config) {
+    write(join(root, 'extensions', layout.extension, 'config.json'), `${JSON.stringify(layout.config, null, 2)}\n`);
+  }
+  for (const object of objects) {
+    writeObject(join(root, layout.map(object.id)), object);
+  }
+};
+
+/** LDaCA's layout with its defaults: `https://host/a/b` → `https_host/a/b/__object__` */
+const pathDirect: Layout = {
+  extension: '000N-path-direct-storage-layout',
+  description: 'OCFL object identifiers are used directly as the path.',
+  map: (id) => {
+    const url = URL.parse(id);
+    const path = url ? `${url.protocol.slice(0, -1)}_${url.hostname}${url.pathname}${url.search}${url.hash}` : id;
+
+    return `${path.replace(/^\/+|\/+$/g, '')}/__object__`;
+  },
+};
+
+/** A layout OcflStorage doesn't implement, so a consumer must pass `objectRoot` */
+const customLayout: Layout = {
+  extension: 'example-custom-layout',
+  description: 'Objects sit in objects/ under the last segment of their identifier.',
+  map: (id) => `objects/${id.split('/').at(-1)}`,
+};
+
+// Must match storedItems in src/test/helpers/storageBackendContract.ts
+const crate = JSON.stringify({ '@context': 'https://w3id.org/ro/crate/1.2/context', '@graph': [{ name: 'Ŋaŋa' }] });
+const storedItems: State = {
+  'collection/ro-crate-metadata.json': crate,
+  'collection/item/greeting.wav': 'RIFF greeting bytes',
+  'collection/item/notes.bin': 'speaker,line\nŋaŋa,hello\n',
+};
+
+const itemCrate = JSON.stringify({ '@context': 'https://w3id.org/ro/crate/1.2/context', '@graph': [{ name: 'Item' }] });
+const single = (state: State): Version[] => [{ message: 'Initial', state }];
+
+writeStorageRoot({
+  dir: 'path-direct',
+  layout: pathDirect,
+  objects: [
+    {
+      id: 'https://example.com/storage/contract',
+      versions: [
+        {
+          message: 'Initial',
+          state: {
+            'collection/ro-crate-metadata.json': crate,
+            'collection/item/greeting.wav': 'RIFF superseded greeting bytes',
+            'collection/item/removed.wav': 'RIFF removed bytes',
+          },
+        },
+        { message: 'Replace the greeting, add notes', state: storedItems },
+      ],
+      mutableHead: { ...storedItems, 'collection/item/greeting.wav': 'RIFF unreleased greeting bytes' },
+    },
+    { id: 'https://example.com/storage/item', versions: single({ 'ro-crate-metadata.json': itemCrate }) },
+    { id: 'https://example.com/storage/bad-sidecar', versions: single(storedItems), damage: 'sidecar' },
+    { id: 'https://example.com/storage/unparseable', versions: single(storedItems), damage: 'unparseable' },
+    { id: 'https://example.com/storage/escaping-manifest', versions: single(storedItems), damage: 'escaping-manifest' },
+  ],
+});
+
+writeStorageRoot({
+  dir: 'custom-layout',
+  layout: customLayout,
+  objects: [{ id: 'https://example.com/storage/custom', versions: single({ 'ro-crate-metadata.json': itemCrate }) }],
+});

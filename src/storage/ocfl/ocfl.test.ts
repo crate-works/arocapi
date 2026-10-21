@@ -1,0 +1,234 @@
+import { createHash } from 'node:crypto';
+import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { mockReset } from 'vitest-mock-extended';
+import type { Entity, File } from '../../generated/prisma/client.js';
+import { prisma } from '../../test/helpers/fastify.js';
+import { buildStorageApp } from '../../test/helpers/storageApp.js';
+import type { ContentContext, StorageBackend } from '../backend.js';
+import { OcflStorage } from './ocfl.js';
+
+const fixtures = join(import.meta.dirname, '../../test/fixtures/ocfl');
+const pathDirect = join(fixtures, 'path-direct');
+const customLayout = join(fixtures, 'custom-layout');
+
+const contract = 'https://example.com/storage/contract';
+const itemCrate = JSON.stringify({ '@context': 'https://w3id.org/ro/crate/1.2/context', '@graph': [{ name: 'Item' }] });
+
+const entity: Entity = {
+  id: 'http://example.com/item',
+  name: 'Item',
+  description: '',
+  entityType: 'http://pcdm.org/models#Object',
+  memberOf: null,
+  rootCollection: null,
+  metadataLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
+  contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
+  meta: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+const file: File = {
+  id: entity.id,
+  filename: 'item.wav',
+  mediaType: 'audio/wav',
+  size: BigInt(1),
+  meta: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+const context = {} as ContentContext;
+
+const getMetadata = async (storage: StorageBackend, meta: Entity['meta']) => {
+  mockReset(prisma);
+  prisma.entity.findFirst.mockResolvedValue({ ...entity, meta });
+  const { app } = await buildStorageApp(storage);
+  const response = await app.inject({ method: 'GET', url: `/entity/${encodeURIComponent(entity.id)}/metadata` });
+  await app.close();
+
+  return response;
+};
+
+const getContent = async (storage: StorageBackend, meta: File['meta']) => {
+  mockReset(prisma);
+  // findFirst's mock is typed without the include
+  prisma.file.findFirst.mockResolvedValue({ ...file, meta, entity } as File);
+  const { app } = await buildStorageApp(storage);
+  const response = await app.inject({ method: 'GET', url: `/file/${encodeURIComponent(file.id)}` });
+  await app.close();
+
+  return response;
+};
+
+describe('OcflStorage', () => {
+  let scratch: string;
+
+  beforeAll(async () => {
+    scratch = await mkdtemp(join(tmpdir(), 'arocapi-ocfl-'));
+  });
+
+  afterAll(async () => {
+    await rm(scratch, { recursive: true });
+  });
+
+  const storageRoot = async (name: string, files: Record<string, string>) => {
+    const root = join(scratch, name);
+    await mkdir(root);
+    await writeFile(join(root, '0=ocfl_1.1'), 'ocfl_1.1\n');
+    for (const [path, body] of Object.entries(files)) {
+      await mkdir(join(root, path, '..'), { recursive: true });
+      await writeFile(join(root, path), body);
+    }
+
+    return root;
+  };
+
+  describe('at startup', () => {
+    it("serves LDaCA's 000N-path-direct-storage-layout", async () => {
+      const storage = await OcflStorage({ root: pathDirect });
+
+      const response = await getMetadata(storage, { ocflObject: 'https://example.com/storage/item' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe(itemCrate);
+    });
+
+    it("honours the layout's extension config", async () => {
+      const root = await storageRoot('omit-scheme', {
+        'ocfl_layout.json': JSON.stringify({ extension: '000N-path-direct-storage-layout' }),
+        'extensions/000N-path-direct-storage-layout/config.json': JSON.stringify({ omitScheme: true }),
+      });
+      await cp(
+        join(pathDirect, 'https_example.com/storage/item/__object__'),
+        join(root, 'example.com/storage/item/__object__'),
+        { recursive: true },
+      );
+      const storage = await OcflStorage({ root });
+
+      const response = await getMetadata(storage, { ocflObject: 'https://example.com/storage/item' });
+
+      expect(response.body).toBe(itemCrate);
+    });
+
+    it('throws on a layout it does not implement', async () => {
+      await expect(OcflStorage({ root: customLayout })).rejects.toThrow(
+        "uses the storage layout example-custom-layout, which OcflStorage doesn't implement; pass objectRoot",
+      );
+    });
+
+    it('serves a layout it does not implement through objectRoot', async () => {
+      const storage = await OcflStorage({ root: customLayout, objectRoot: (id) => `objects/${id.split('/').at(-1)}` });
+
+      const response = await getMetadata(storage, { ocflObject: 'https://example.com/storage/custom' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe(itemCrate);
+    });
+
+    it('throws without ocfl_layout.json unless objectRoot is given', async () => {
+      const root = await storageRoot('no-layout', {});
+
+      await expect(OcflStorage({ root })).rejects.toThrow('has no ocfl_layout.json naming its storage layout');
+      await expect(OcflStorage({ root, objectRoot: (id) => id })).resolves.toBeDefined();
+    });
+
+    it('throws when ocfl_layout.json cannot be read', async () => {
+      const root = await storageRoot('unreadable-layout', { 'ocfl_layout.json/inside': '' });
+
+      await expect(OcflStorage({ root })).rejects.toThrow('EISDIR');
+    });
+
+    it('throws on a directory that is not a storage root', async () => {
+      await expect(OcflStorage({ root: join(pathDirect, 'https_example.com') })).rejects.toThrow(
+        'is not an OCFL storage root',
+      );
+      await expect(OcflStorage({ root: join(scratch, 'nothing-here') })).rejects.toThrow('ENOENT');
+    });
+  });
+
+  describe('objectRoot', () => {
+    it.each([
+      ['an objectRoot', () => OcflStorage({ root: customLayout, objectRoot: async () => '../path-direct' })],
+      ['the layout', () => OcflStorage({ root: pathDirect })],
+    ])('refuses an object root outside the storage root from %s with 500', async (_, create) => {
+      const storage = await create();
+
+      const response = await getMetadata(storage, { ocflObject: '../../outside' });
+
+      expect(response.statusCode).toBe(500);
+    });
+  });
+
+  describe('versions', () => {
+    it('serves the head version, ignoring older versions and the mutable HEAD', async () => {
+      const storage = await OcflStorage({ root: pathDirect });
+      const body = 'RIFF greeting bytes';
+
+      const response = await getContent(storage, { ocflObject: contract, ocflPath: 'collection/item/greeting.wav' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe(body);
+      expect(response.headers.etag).toBe(`"${createHash('sha512').update(body).digest('hex')}"`);
+    });
+
+    it('answers 404 for a path only in an older version', async () => {
+      const storage = await OcflStorage({ root: pathDirect });
+
+      const response = await getContent(storage, { ocflObject: contract, ocflPath: 'collection/item/removed.wav' });
+
+      expect(response.statusCode).toBe(404);
+    });
+  });
+
+  describe('damaged inventories', () => {
+    it.each(['bad-sidecar', 'unparseable', 'escaping-manifest'])('answers 500 for %s', async (name) => {
+      const storage = await OcflStorage({ root: pathDirect });
+
+      const response = await getContent(storage, {
+        ocflObject: `https://example.com/storage/${name}`,
+        ocflPath: 'collection/item/greeting.wav',
+      });
+
+      expect(response.statusCode).toBe(500);
+      expect(response.body).not.toContain('RIFF');
+    });
+  });
+
+  describe('locations', () => {
+    it('finds nothing for a missing object or logical path', async () => {
+      const storage = await OcflStorage({ root: pathDirect });
+
+      await expect(
+        storage.content(
+          { ...file, meta: { ocflObject: 'https://example.com/storage/none', ocflPath: 'a.wav' } },
+          entity,
+          context,
+        ),
+      ).resolves.toBeNull();
+      await expect(
+        storage.content({ ...file, meta: { ocflObject: contract, ocflPath: 'collection/none.wav' } }, entity, context),
+      ).resolves.toBeNull();
+    });
+
+    it('finds no Content without an ocflPath', async () => {
+      const storage = await OcflStorage({ root: pathDirect });
+
+      await expect(storage.content({ ...file, meta: { ocflObject: contract } }, entity, context)).resolves.toBeNull();
+    });
+
+    it.each([
+      ['ocflObject', { ocflObject: 42, ocflPath: 'a.wav' }],
+      ['ocflPath', { ocflObject: contract, ocflPath: ['a.wav'] }],
+    ])('throws naming the entity and key when %s is not a string', async (key, meta) => {
+      const storage = await OcflStorage({ root: pathDirect });
+      const message = `http://example.com/item has a meta.${key} that is not a string`;
+
+      await expect(storage.metadata({ ...entity, meta }, context)).rejects.toThrow(message);
+      await expect(storage.content({ ...file, meta }, entity, context)).rejects.toThrow(message);
+    });
+  });
+});

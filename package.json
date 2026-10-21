@@ -10,7 +10,8 @@
     "./search/postgres": "./dist/search/postgres/postgres.js",
     "./storage/directory": "./dist/storage/directory/directory.js",
     "./storage/entity-meta": "./dist/storage/entity-meta/entity-meta.js",
-    "./storage/s3": "./dist/storage/s3/s3.js"
+    "./storage/s3": "./dist/storage/s3/s3.js",
+    "./storage/ocfl": "./dist/storage/ocfl/ocfl.js"
   },
   "keywords": [
     "rocrate",
@@ -30,6 +31,7 @@
     "@biomejs/biome": "^2.5.15",
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
+    "@ocfl/ocfl-fs": "^0.4.0",
     "@opensearch-project/opensearch": "^3.9.0",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
@@ -57,6 +59,7 @@
   "peerDependencies": {
     "@aws-sdk/client-s3": "^3.1153.0",
     "@aws-sdk/s3-request-presigner": "^3.1153.0",
+    "@ocfl/ocfl-fs": "^0.4.0",
     "@opensearch-project/opensearch": "^3.9.0",
     "@prisma/client": "^7.10.0",
     "fastify": "^5.12.7"
@@ -86,6 +89,7 @@
     "dev:clean": "rm -rf dist",
     "dbconsole": "docker compose exec db psql -U postgres catalog",
     "load-test-data": "tsx scripts/loadEntities.ts",
+    "fixtures:ocfl": "node scripts/buildOcflFixtures.ts",
     "lint:biome": "biome check",
     "lint:types": "tsc --noEmit",
     "lint:examples": "tsc --emitDeclarationOnly && tsc -p website/examples",
@@ -112,6 +116,9 @@
   },
   "packageManager": "pnpm@12.11.2",
   "peerDependenciesMeta": {
+    "@ocfl/ocfl-fs": {
+      "optional": true
+    },
     "@opensearch-project/opensearch": {
       "optional": true
     }
