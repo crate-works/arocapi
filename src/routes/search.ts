@@ -10,7 +10,13 @@ import {
   type SearchRequest,
   type SearchResult,
 } from '../search/backend.js';
-import { boundingBoxSchema, filterValueSchema, geoViolations, splitFilters } from '../search/requestFilters.js';
+import {
+  boundingBoxSchema,
+  filterValueSchema,
+  geoViolations,
+  splitFilters,
+  type Violation,
+} from '../search/requestFilters.js';
 import { applyTransformers, authoriseEntities } from '../transformers/default.js';
 import type { AccessFunction, AccessInfo } from '../types/access.js';
 import type { EntityTransformer } from '../types/transformers.js';
@@ -63,17 +69,17 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
   const { capabilities } = backend;
   const noFacets = Object.fromEntries(Object.keys(capabilities.facets).map((name) => [name, []]));
 
-  const violations = ({ searchType, filters, sort }: SearchParams) => [
-    ...(Object.hasOwn(capabilities.searchTypes, searchType)
-      ? []
-      : [{ field: '/searchType', message: `${searchType} search isn't supported`, value: searchType }]),
-    ...Object.keys(filters)
-      .filter((key) => !Object.hasOwn(capabilities.filters, key))
-      .map((key) => ({ field: `/filters/${key}`, message: `${key} isn't a declared filter` })),
-    ...(sort === 'relevance' || Object.hasOwn(capabilities.sorts, sort)
-      ? []
-      : [{ field: '/sort', message: `${sort} isn't a declared sort`, value: sort }]),
-  ];
+  const violations = ({ searchType, sort }: SearchParams) => {
+    const found: Violation[] = [];
+    if (!Object.hasOwn(capabilities.searchTypes, searchType)) {
+      found.push({ field: '/searchType', message: `${searchType} search isn't supported`, value: searchType });
+    }
+    if (sort !== 'relevance' && !Object.hasOwn(capabilities.sorts, sort)) {
+      found.push({ field: '/sort', message: `${sort} isn't a declared sort`, value: sort });
+    }
+
+    return found;
+  };
 
   fastify.withTypeProvider<ZodTypeProvider>().post(
     '/search',

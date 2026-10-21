@@ -18,7 +18,7 @@ export const boundingBoxSchema = z.object({ topRight: pointSchema, bottomLeft: p
 type WireRange = z.infer<typeof rangeSchema>;
 type FilterValue = z.infer<typeof filterValueSchema>;
 type FilterType = BackendSearchCapability['filters'][string]['type'];
-type Violation = { field: string; message: string; value?: unknown };
+export type Violation = { field: string; message: string; value?: unknown };
 type Normalised = { range: RangeFilter } | { problem: string };
 
 const FILTER_DATE = /^\d{4}-\d{2}-\d{2}(?:[Tt ]|$)/;
@@ -94,7 +94,6 @@ const normalise = (type: FilterType, value: FilterValue): { range: RangeFilter[]
 
 /**
  * Split declared filters into exact terms and ranges: date and number filters become ranges, with dates as UTC instants
- * Undeclared keys are left for the caller to reject
  */
 export const splitFilters = (declared: BackendSearchCapability['filters'], filters: Record<string, FilterValue>) => {
   const split: SearchRequest['filters'] = { terms: {}, ranges: {} };
@@ -102,6 +101,7 @@ export const splitFilters = (declared: BackendSearchCapability['filters'], filte
 
   for (const [key, value] of Object.entries(filters)) {
     if (!Object.hasOwn(declared, key)) {
+      violations.push({ field: `/filters/${key}`, message: `${key} isn't a declared filter`, value });
       continue;
     }
 
@@ -154,20 +154,25 @@ export const geoViolations = (
   geo: BackendSearchCapability['geo'],
   { boundingBox, geohashPrecision }: { boundingBox?: BoundingBox; geohashPrecision?: number },
 ): Violation[] => {
-  const unsupported = "Geo search isn't supported";
+  const violations: Violation[] = [];
   if (!geo.supported) {
-    return [
-      ...(boundingBox ? [{ field: '/boundingBox', message: unsupported }] : []),
-      ...(geohashPrecision === undefined ? [] : [{ field: '/geohashPrecision', message: unsupported }]),
-    ];
+    const message = "Geo search isn't supported";
+    if (boundingBox) {
+      violations.push({ field: '/boundingBox', message });
+    }
+    if (geohashPrecision !== undefined) {
+      violations.push({ field: '/geohashPrecision', message });
+    }
+
+    return violations;
   }
 
-  return [
-    ...(geohashPrecision !== undefined && !boundingBox
-      ? [{ field: '/geohashPrecision', message: 'geohashPrecision needs a boundingBox' }]
-      : []),
-    ...(boundingBox && boundingBox.bottomLeft.lat > boundingBox.topRight.lat
-      ? [{ field: '/boundingBox', message: 'bottomLeft.lat is north of topRight.lat' }]
-      : []),
-  ];
+  if (geohashPrecision !== undefined && !boundingBox) {
+    violations.push({ field: '/geohashPrecision', message: 'geohashPrecision needs a boundingBox' });
+  }
+  if (boundingBox && boundingBox.bottomLeft.lat > boundingBox.topRight.lat) {
+    violations.push({ field: '/boundingBox', message: 'bottomLeft.lat is north of topRight.lat' });
+  }
+
+  return violations;
 };
