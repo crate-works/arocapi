@@ -7,67 +7,57 @@ sidebar:
 
 import { Code } from '@astrojs/starlight/components';
 import storageLocal from '@examples/strategies/storage-local.ts?raw';
-import storageAccel from '@examples/strategies/storage-accel.ts?raw';
 import storagePresigned from '@examples/strategies/storage-presigned.ts?raw';
-import storageSignedUrl from '@examples/strategies/storage-signed-url.ts?raw';
+import storageSignedUrl from '@examples/reference/storage-backend-signed-redirect.ts?raw';
 import storageRoCrate from '@examples/strategies/storage-ro-crate.ts?raw';
 
-arocapi doesn't know where your files live. Two handlers fetch them for it:
+arocapi doesn't know where your files live. A [storage backend](/configuration/storage/) of two halves fetches them
+for it:
 
-- `fileHandler` serves a file's content on `GET` and `HEAD /file/:id`. It receives the File row, including the file's
-  own `meta` column.
-- `roCrateHandler` serves an entity's RO-Crate metadata on `GET` and `HEAD /entity/:id/metadata`. It receives the
-  Entity row, including the entity's `meta` column.
+- `content` serves a file's content on `GET` and `HEAD /file/:id`. It receives the File row and its file entity,
+  both including `meta`.
+- `metadata` serves an entity's RO-Crate metadata on `GET` and `HEAD /entity/:id/metadata`. It receives the Entity
+  row, including `meta`.
 
 Both run only after the entity is visible and the request may read it (see
 [Visibility vs Access](/concepts/visibility-vs-access/) and the
-[request lifecycle](/concepts/request-lifecycle/#metadata-and-content-routes)), so a handler never checks access
-itself. Each has a `get`, which returns how to deliver the bytes, and a `head`, which returns only their headers.
-Either can return `false` to answer 404. The full contract is under [Handlers](/configuration/handlers/), and the `meta` columns under
+[request lifecycle](/concepts/request-lifecycle/#metadata-and-content-routes)), so a storage backend never checks
+access itself. Each half makes one call per request, shared by `HEAD` and `GET`, and returns a delivery, or `null` to
+answer 404. The full contract is under [Storage backend](/reference/storage-backend/), and the `meta` columns under
 [Entity meta](/reference/entity-meta/).
 
 ## Stream or redirect
 
-`get` returns one of three results:
+A delivery is one of:
 
-| Result | What arocapi sends |
+| Delivery | What arocapi sends |
 | --- | --- |
 | `{ type: 'redirect', url }` | `302` to `url`. On `/file/:id`, `?noRedirect=true` returns `200` with `{ "location": url }` instead. |
-| `{ type: 'stream', stream, metadata }` | `200` with the stream as the body. |
-| `{ type: 'file', path, metadata, accelPath? }` | `200` with the file at `path` read from disk, or an empty body and an `X-Accel-Redirect: accelPath` header for nginx to fill. |
+| `{ type: 'stream', open, ...headers }` | `200` with the stream `open()` returns, called only on `GET`. |
+| `{ type: 'path', path, ...headers }` | `200` with the file at `path`, which arocapi opens on `GET`. |
+| `{ type: 'json', value }` | Metadata only: `200` with `value` serialised, with its length and a strong ETag. |
 
-For `stream` and `file`, arocapi sets `Content-Type`, `Content-Length`, `ETag` and `Last-Modified` from `metadata`. On
-`/file/:id` it also sets `Content-Disposition` from the `disposition` and `filename` query parameters. On
-`/entity/:id/metadata` it always sends `Content-Type: application/ld+json`, whatever `metadata.contentType` says.
+For `stream` and `path`, arocapi sets `Content-Type`, `Content-Length`, `ETag` and `Last-Modified` from the delivery.
+On `/file/:id` it also sets `Content-Disposition` from the `disposition` and `filename` query parameters. On
+`/entity/:id/metadata` it always sends `Content-Type: application/ld+json`.
 
-Which result you return decides who moves the bytes and what the client can do with them:
+Which delivery you return decides who moves the bytes and what the client can do with them:
 
 - **Streaming** keeps every byte behind your API: one origin, no URLs to leak, and nothing extra to configure for
   CORS. But your Node process carries the whole transfer.
-- **Redirecting** hands the transfer to something built for it, such as object storage, a CDN or nginx. The cost is a
+- **Redirecting** hands the transfer to something built for it, such as object storage or a CDN. The cost is a
   second request, a second origin that browsers must be allowed to read from, and a URL that works for anyone who holds
   it until it expires.
 
 ### Range requests
 
 Audio and video players seek by asking for byte ranges (`Range: bytes=…`) and expect `206 Partial Content` back.
-**arocapi doesn't handle ranges.** It ignores the `Range` header and answers a `stream` or `file` result with `200`,
-the whole body and the full `Content-Length`. Your handler can read the request through its context, but it can't
-change the status or add a `Content-Range`, so a stream that returns only part of a file would not match the headers
-arocapi sends.
-
-To give players range support, let something else serve the bytes:
-
-- a `redirect` to a server that handles ranges, such as object storage or your own content route; or
-- a `file` result with `accelPath`, so nginx serves the file and handles the range itself.
+**arocapi doesn't handle ranges yet.** It answers a `stream` or `path` delivery with `200`, the whole body and the
+full `Content-Length`. To give players range support today, return a `redirect` to a server that handles ranges,
+such as object storage or your own content route. `path` deliveries will seek once
+[Range support](https://github.com/crate-works/arocapi/issues/45) lands.
 
 A client that wants the redirect target without following it can call `/file/:id?noRedirect=true`.
-
-### HEAD requests
-
-`head` returns only the `metadata`, and arocapi answers `200` with those headers whatever `get` would return. For a
-redirect pattern that means `head` still needs the size and type. Take them from the File row (`mediaType` and `size`)
-rather than asking storage on every request.
 
 ## Stream from local disk
 
@@ -77,41 +67,38 @@ The simplest pattern: files sit on a disk the API server can read, and arocapi s
 sequenceDiagram
   participant Client
   participant arocapi
-  participant Handler as fileHandler
+  participant Storage as DirectoryStorage
   participant Disk
   Client->>arocapi: GET /file/{id}
-  arocapi->>Handler: get(file)
-  Handler-->>arocapi: file result with path
+  arocapi->>Storage: content(file, entity)
+  Storage-->>arocapi: path delivery
   arocapi->>Disk: read path
   Disk-->>arocapi: bytes
   arocapi-->>Client: 200 with the whole file
 ```
 
-Store each file's location in its `meta` column when you index it, then build the path from it.
+Store each file's location, relative to the root, in its `meta.storagePath` when you index it.
 
 <Code code={storageLocal} lang="ts" />
 
 Use this when files are small, or when nobody needs to seek within them. It is a poor fit for media playback, because
-every seek downloads the file from the start. If nginx sits in front of arocapi, add `accelPath` to the same result and
-nginx serves the file, with range support, from an `internal` location:
-
-<Code code={storageAccel} lang="ts" />
+every seek downloads the file from the start.
 
 ## Redirect to object storage
 
-Files live in an S3-compatible bucket that is not public. The handler signs a short-lived URL for the object and
+Files live in an S3-compatible bucket that is not public. The `content` half signs a short-lived URL for the object and
 redirects to it, and the bucket serves the bytes, ranges included.
 
 ```mermaid
 sequenceDiagram
   participant Client
   participant arocapi
-  participant Handler as fileHandler
+  participant Storage as content half
   participant Bucket as Object storage
   Client->>arocapi: GET /file/{id}
-  arocapi->>Handler: get(file)
-  Handler->>Handler: presign the object key
-  Handler-->>arocapi: redirect result with presigned URL
+  arocapi->>Storage: content(file, entity, context)
+  Storage->>Storage: presign the object key
+  Storage-->>arocapi: redirect delivery with presigned URL
   arocapi-->>Client: 302 Location presigned URL
   Client->>Bucket: GET presigned URL, with Range
   Bucket-->>Client: 206 Partial Content
@@ -121,20 +108,20 @@ sequenceDiagram
 
 Things to plan for:
 
-- **Keep the expiry short.** arocapi checks access before it calls the handler, so the presigned URL is the
+- **Keep the expiry short.** arocapi checks access before it calls the storage backend, so the presigned URL is the
   permission. Anyone holding it can download the file until it expires.
 - **Pass on the download name.** arocapi only sets `Content-Disposition` on bytes it serves itself. For a redirect, ask
-  the bucket to set it, as above, or `?disposition=attachment` has no effect.
+  the bucket to set it from `context.contentDisposition`, as above, or `?disposition=attachment` has no effect.
 - **Allow your web clients in the bucket's CORS rules** if they fetch content from the browser. A client that can't
   follow a cross-origin redirect can call `/file/:id?noRedirect=true` and fetch the returned `location` itself.
 
 ## OCFL behind a signed redirect
 
 Files are preserved in an [OCFL](https://ocfl.io) storage root, where a file's path on disk depends on the object's
-inventory and version. Rather than resolve that inside arocapi and stream the result without ranges, the handler
+inventory and version. Rather than resolve that inside arocapi and stream the result without ranges, the `content` half
 redirects to a content route of your own. That route is not part of arocapi.
 
-1. `fileHandler.get` signs a token naming the file, valid for a short time, and returns a redirect to
+1. The `content` half signs a token naming the file, valid for a short time, and returns a redirect to
    `/content/<token>`.
 2. The content route checks the signature and expiry, resolves the file's path through the OCFL inventory, and serves
    it in one of two ways:
@@ -174,7 +161,8 @@ the byte path, and media seeks work. The cost is a second route and a signing ke
 
 ## RO-Crate metadata
 
-`roCrateHandler` follows the same contract, with the Entity row in place of the File row. Two differences from files:
+The `metadata` half follows the same contract, with the Entity row in place of the File row. Two differences from
+files:
 
 - Metadata documents are small and are read whole, so streaming them is usually fine and range requests don't
   matter.
@@ -182,9 +170,9 @@ the byte path, and media seeks work. The cost is a second route and a signing ke
   `302`. `/entity/:id/metadata` has no `noRedirect` option.
 
 The same storage patterns apply: read `ro-crate-metadata.json` from disk, redirect to it in object storage, or resolve
-it from the OCFL object. Because the handler can return a stream, it can also build the document on the fly, for
-example to redact it before sending it.
+it from the OCFL object. A `metadata` half can also build the document on the fly, for example to redact it, and return it as a `json`
+delivery.
 
 <Code code={storageRoCrate} lang="ts" />
 
-`contentLength` must match the bytes you send, so measure a generated document after you build it.
+arocapi serialises the value once and sets its length and ETag from those bytes.

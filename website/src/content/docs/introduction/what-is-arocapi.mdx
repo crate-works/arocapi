@@ -17,8 +17,8 @@ It is built for long-term archival repositories that follow the [PILARS](/introd
 owns the API and leaves the decisions that differ between repositories to you:
 
 - **Where things live.** Entities are indexed in a database through Prisma and searched through a
-  [search backend](/strategies/search/) such as OpenSearch. You supply handlers that fetch RO-Crate metadata and file bytes from
-  [your storage](/strategies/storage/). For now you fill the database and index yourself; support for the RO-Crate
+  [search backend](/strategies/search/) such as OpenSearch. A storage backend, such as the built-in
+  `DirectoryStorage` or your own, delivers RO-Crate metadata and file bytes from [your storage](/strategies/storage/). For now you fill the database and index yourself; support for the RO-Crate
   API's deposit routes, which will let you load RO-Crates through the API, is coming soon.
 - **Who sees what.** Visibility filters decide which entities exist for a request. An access function decides
   whether a request may read an entity's full metadata and its file content, usually by
@@ -32,7 +32,7 @@ You pass everything arocapi needs as plugin options.
 <Code code={whatIsArocapiOptions} lang="ts" />
 
 Every option is described under Configuration: [data sources](/configuration/data-sources/),
-[visibility](/configuration/visibility/), [access](/configuration/access/), [handlers](/configuration/handlers/),
+[visibility](/configuration/visibility/), [access](/configuration/access/), [storage](/configuration/storage/),
 [search](/configuration/search/), [transformers](/configuration/transformers/) and [HTTP](/configuration/http/). The
 routes it adds are listed under [Routes](/reference/routes/).
 
@@ -54,8 +54,8 @@ flowchart LR
   transformers --> record[Record with its access]
   route -- metadata or file --> accessible{Accessible?}
   accessible -- no --> refused[401 or 403]
-  accessible -- yes --> handler[Your handler]
-  handler --> bytes[Metadata or file content]
+  accessible -- yes --> storage[Your storage backend]
+  storage --> bytes[Metadata or file content]
 ```
 
 To set up your own, start with [Install](/getting-started/install/).

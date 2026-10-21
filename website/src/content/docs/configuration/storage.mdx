@@ -1,0 +1,85 @@
+---
+title: Storage
+description: The storage backend that delivers Metadata and Content, and the DirectoryStorage options.
+sidebar:
+  order: 4
+---
+
+import { Code } from '@astrojs/starlight/components';
+import storageDirectory from '@examples/configuration/storage-directory.ts?raw';
+import storageMixing from '@examples/configuration/storage-mixing.ts?raw';
+
+`GET` and `HEAD /entity/:id/metadata` and `/file/:id` go through a storage backend. arocapi calls it only after the
+entity is Visible and the request has access, so it doesn't need its own checks (see the [request
+lifecycle](/concepts/request-lifecycle/#metadata-and-content-routes)). arocapi ships
+[`DirectoryStorage`](#directorystorage), or you can [write your own](/reference/storage-backend/).
+[Storage](/strategies/storage/) compares ways to serve bytes.
+
+| Option    | Required | Type             | Default | Purpose                                                    |
+| --------- | -------- | ---------------- | ------- | ---------------------------------------------------------- |
+| `storage` | yes      | `StorageBackend` | none    | Delivers an entity's Metadata and a file's Content.        |
+
+Registration throws `storage is required` without it, and `storage.metadata is required` or
+`storage.content is required` without either half.
+
+## The halves
+
+A storage backend is a plain object of two halves, `{ metadata, content }`:
+
+| Half       | Serves                             | Receives                                                                |
+| ---------- | ---------------------------------- | ----------------------------------------------------------------------- |
+| `metadata` | `GET`, `HEAD /entity/:id/metadata` | the `Entity` row, including `entity.meta`, and the request context      |
+| `content`  | `GET`, `HEAD /file/:id`            | the `File` row and its file entity, both with `meta`, and the request context with `contentDisposition` |
+
+Each returns a [delivery](/reference/storage-backend/#deliveries), or `null` for a 404, and may be async. `HEAD` and
+`GET` make the same call, so their headers always agree. The `meta` columns hold what a backend needs to find the
+bytes; see [Entity meta](/reference/entity-meta/#storage-keys).
+
+## Mixing sources
+
+The reference backends return both halves as a plain object, so either half can be replaced by another source. Here
+Metadata comes from the database and Content from disk:
+
+<Code code={storageMixing} lang="ts" />
+
+## `DirectoryStorage`
+
+Serves both halves from files below a directory. Import it from `arocapi/storage/directory`:
+
+<Code code={storageDirectory} lang="ts" />
+
+| Option   | Required | Type                      | Default                 | Purpose                                         |
+| -------- | -------- | ------------------------- | ----------------------- | ----------------------------------------------- |
+| `root`   | yes      | string                    | none                    | The directory every Storage key is relative to. |
+| `locate` | no       | `{ metadata?, content? }` | read `meta.storagePath` | Where each item sits below `root`: `metadata(entity)` and `content(file, entity)` return, or resolve to, a relative path or `null`. |
+
+Without `locate`, Metadata is read from `Entity.meta.storagePath` and Content from `File.meta.storagePath`. A Metadata
+key names the RO-Crate metadata file itself, so several entities can share one.
+
+- A missing key, a `locate` returning `null`, or no file at the path is a 404.
+- A `storagePath` that isn't a string is a 500, logged with the entity id and key.
+- A key that is absolute or has a `..` segment is a 500, before anything is read. An absolute `storagePath` written
+  for arocapi 4 fails this way rather than being read as relative.
+
+Content-Length and Last-Modified come from the file, with a weak ETag from its size and modification time.
+Content-Type comes from `File.mediaType`; Metadata is always `application/ld+json`.
+
+## Query parameters
+
+`/file/:id` accepts, on `GET` and `HEAD`:
+
+| Parameter     | Values                   | Default         | Effect                                                       |
+| ------------- | ------------------------ | --------------- | ------------------------------------------------------------ |
+| `disposition` | `inline` or `attachment` | `inline`        | `Content-Disposition` type.                                  |
+| `filename`    | string                   | `file.filename` | Filename in `Content-Disposition`.                           |
+| `noRedirect`  | `true` or `false`        | `false`         | Answer a `redirect` delivery with 200 `{ "location": url }`. |
+
+arocapi sends `Content-Disposition` on `stream` and `path` deliveries, and passes the same value to `content` as
+`contentDisposition`, so a redirecting backend can bake it into its URL. Any other `disposition` or `noRedirect` value
+is a 400. `/entity/:id/metadata` takes no query parameters.
+
+## Range requests
+
+arocapi doesn't handle `Range` headers yet: a `stream` or `path` delivery is always sent whole, with the full
+`Content-Length`. A redirect to storage that seeks, such as a presigned object storage URL, supports ranges today, and
+`path` deliveries will once [Range support](https://github.com/crate-works/arocapi/issues/45) lands.

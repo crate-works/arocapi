@@ -10,9 +10,9 @@ import metadata from './routes/metadata.js';
 import search from './routes/search.js';
 import type { SearchBackend } from './search/backend.js';
 import type { SearchVisibilityWhere } from './search/visibility.js';
+import type { StorageBackend } from './storage/backend.js';
 import type { AccessFunction } from './types/access.js';
 import type { IsAuthenticated, RequestContext } from './types/context.js';
-import type { FileHandler, RoCrateHandler } from './types/fileHandlers.js';
 import type { EntityTransformer, FileTransformer } from './types/transformers.js';
 import type { EntityVisibilityFilter } from './types/visibility.js';
 import { notFoundHandler } from './utils/errors.js';
@@ -42,6 +42,24 @@ export { capabilitiesFromFields } from './search/fields.js';
 export type { SearchVisibilityWhere, VisibilityCondition } from './search/visibility.js';
 export { checkSearchVisibility } from './search/visibility.js';
 export type {
+  ContentContext,
+  ContentDelivery,
+  ContentSource,
+  DeliveryHeaders,
+  DirectoryStorageMeta,
+  JsonDelivery,
+  MetadataDelivery,
+  MetadataSource,
+  OcflLocation,
+  OcflStorageMeta,
+  PathDelivery,
+  RedirectDelivery,
+  S3StorageMeta,
+  StorageBackend,
+  StorageLocate,
+  StreamDelivery,
+} from './storage/backend.js';
+export type {
   AuthorisedEntity,
   AuthorisedFile,
   BaseEntity,
@@ -50,19 +68,6 @@ export type {
 } from './transformers/default.js';
 export type { AccessFunction, AccessInfo } from './types/access.js';
 export type { IsAuthenticated, RequestContext } from './types/context.js';
-export type {
-  FileHandler,
-  FileMetadata,
-  FilePathResult,
-  FileRedirectResult,
-  FileResult,
-  FileStreamResult,
-  GetFileHandler,
-  GetRoCrateHandler,
-  HeadFileHandler,
-  HeadRoCrateHandler,
-  RoCrateHandler,
-} from './types/fileHandlers.js';
 export type { EntityTransformer, FileTransformer } from './types/transformers.js';
 export type { EntityVisibilityFilter, SearchVisibilityFilter } from './types/visibility.js';
 export type { LicenceAccessOptions } from './utils/access.js';
@@ -107,8 +112,8 @@ export type Options = {
   access: AccessFunction;
   entityTransformers?: EntityTransformer[];
   fileTransformers?: FileTransformer[];
-  fileHandler: FileHandler;
-  roCrateHandler: RoCrateHandler;
+  /** Where Metadata and Content come from */
+  storage: StorageBackend;
   entityVisibilityFilter: EntityVisibilityFilter;
   /** A `SearchVisibilityFilter<typeof fields>` for the search backend's declared fields */
   searchVisibilityFilter: (context: RequestContext) => Promise<SearchVisibilityWhere> | SearchVisibilityWhere;
@@ -121,8 +126,7 @@ const app: FastifyPluginAsync<Options> = async (fastify, options) => {
     access,
     entityTransformers,
     fileTransformers,
-    fileHandler,
-    roCrateHandler,
+    storage,
     entityVisibilityFilter,
     searchVisibilityFilter,
     isAuthenticated,
@@ -154,12 +158,16 @@ const app: FastifyPluginAsync<Options> = async (fastify, options) => {
     throw new Error('access is required');
   }
 
-  if (!fileHandler) {
-    throw new Error('fileHandler is required');
+  if (!storage) {
+    throw new Error('storage is required');
   }
 
-  if (!roCrateHandler) {
-    throw new Error('roCrateHandler is required');
+  if (!storage.metadata) {
+    throw new Error('storage.metadata is required');
+  }
+
+  if (!storage.content) {
+    throw new Error('storage.content is required');
   }
 
   if (!entityVisibilityFilter) {
@@ -189,8 +197,8 @@ const app: FastifyPluginAsync<Options> = async (fastify, options) => {
   fastify.register(entities, { prisma, access, entityTransformers, entityVisibilityFilter });
   fastify.register(entity, { prisma, access, entityTransformers, entityVisibilityFilter, refusal });
   fastify.register(files, { prisma, access, fileTransformers, entityVisibilityFilter });
-  fastify.register(file, { prisma, fileHandler, access, entityVisibilityFilter, refusal });
-  fastify.register(metadata, { prisma, roCrateHandler, access, entityVisibilityFilter, refusal });
+  fastify.register(file, { prisma, content: storage.content, access, entityVisibilityFilter, refusal });
+  fastify.register(metadata, { prisma, metadata: storage.metadata, access, entityVisibilityFilter, refusal });
   fastify.register(search, {
     prisma,
     search: searchBackend,

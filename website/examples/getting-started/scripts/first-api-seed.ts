@@ -1,4 +1,3 @@
-import { resolve } from 'node:path';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client.ts';
 import { opensearch, search } from '../src/search.ts';
@@ -35,7 +34,7 @@ const entities = [
 ];
 
 await prisma.entity.create({
-  data: { ...entities[0], meta: { storagePath: resolve('data/ro-crate-metadata.json') } },
+  data: { ...entities[0], meta: { storagePath: 'ro-crate-metadata.json' } },
 });
 await prisma.entity.create({ data: entities[1] });
 await prisma.file.create({
@@ -44,7 +43,7 @@ await prisma.file.create({
     filename: 'hello.txt',
     mediaType: 'text/plain',
     size: 19,
-    meta: { storagePath: resolve('data/hello.txt') },
+    meta: { storagePath: 'hello.txt' },
   },
 });
 

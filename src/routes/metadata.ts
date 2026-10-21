@@ -1,50 +1,44 @@
-import { createReadStream } from 'node:fs';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { PrismaClient } from '../generated/prisma/client.js';
+import type { MetadataSource } from '../storage/backend.js';
+import { sendDelivery } from '../storage/deliver.js';
 import type { AccessFunction } from '../types/access.js';
-import type { RequestContext } from '../types/context.js';
-import type { FileMetadata, RoCrateHandler } from '../types/fileHandlers.js';
 import type { EntityVisibilityFilter } from '../types/visibility.js';
 import { createAccessGuard } from '../utils/access.js';
 import { createNotFoundError } from '../utils/errors.js';
-import { setFileHeaders } from '../utils/headers.js';
 import { createEntityNotVisibleResponder, type RefusalOptions } from '../utils/visibility.js';
 
 const paramsSchema = z.object({
   id: z.url(),
 });
 
-type CrateRouteOptions = {
+type MetadataRouteOptions = {
   prisma: PrismaClient;
-  roCrateHandler: RoCrateHandler;
+  metadata: MetadataSource;
   access: AccessFunction;
   entityVisibilityFilter: EntityVisibilityFilter;
   refusal: RefusalOptions;
 };
 
-const crate: FastifyPluginAsync<CrateRouteOptions> = async (fastify, opts) => {
-  const { prisma, roCrateHandler, access, entityVisibilityFilter, refusal } = opts;
-
-  const findVisibleEntity = async (id: string, context: RequestContext) =>
-    prisma.entity.findFirst({ where: { AND: [{ id }, await entityVisibilityFilter(context)] } });
+const metadataRoute: FastifyPluginAsync<MetadataRouteOptions> = async (fastify, opts) => {
+  const { prisma, metadata, access, entityVisibilityFilter, refusal } = opts;
 
   const sendEntityNotVisible = createEntityNotVisibleResponder(prisma, refusal);
   const denyMetadata = createAccessGuard({ access, isAuthenticated: refusal.isAuthenticated, level: 'metadata' });
 
-  fastify.withTypeProvider<ZodTypeProvider>().head(
-    '/entity/:id/metadata',
-    {
-      schema: {
-        params: paramsSchema,
-      },
+  fastify.withTypeProvider<ZodTypeProvider>().route({
+    method: ['GET', 'HEAD'],
+    url: '/entity/:id/metadata',
+    schema: {
+      params: paramsSchema,
     },
-    async (request, reply) => {
+    handler: async (request, reply) => {
       const { id } = request.params;
 
       const context = { request, fastify };
-      const entity = await findVisibleEntity(id, context);
+      const entity = await prisma.entity.findFirst({ where: { AND: [{ id }, await entityVisibilityFilter(context)] } });
 
       if (!entity) {
         return sendEntityNotVisible(reply, id, context);
@@ -54,76 +48,15 @@ const crate: FastifyPluginAsync<CrateRouteOptions> = async (fastify, opts) => {
         return reply;
       }
 
-      const metadata: FileMetadata | false = await roCrateHandler.head(entity, context);
+      const delivery = await metadata(entity, context);
 
-      if (!metadata) {
+      if (!delivery) {
         return reply.code(404).send(createNotFoundError('The requested RO-Crate metadata was not found', id));
       }
 
-      setFileHeaders(reply, metadata);
-
-      return reply.code(200).send();
+      return sendDelivery(request, reply, delivery, { contentType: 'application/ld+json' });
     },
-  );
-
-  fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/entity/:id/metadata',
-    {
-      schema: {
-        params: paramsSchema,
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-
-      const context = { request, fastify };
-      const entity = await findVisibleEntity(id, context);
-
-      if (!entity) {
-        return sendEntityNotVisible(reply, id, context);
-      }
-
-      if (await denyMetadata(reply, entity, context)) {
-        return reply;
-      }
-
-      const result = await roCrateHandler.get(entity, context);
-
-      if (!result) {
-        return reply.code(404).send(createNotFoundError('The requested RO-Crate could not be retrieved', id));
-      }
-
-      if (result.type === 'redirect') {
-        return reply.code(302).redirect(result.url);
-      }
-
-      // Set content type to application/ld+json for RO-Crate
-      const metadata = {
-        ...result.metadata,
-        contentType: 'application/ld+json',
-      };
-
-      setFileHeaders(reply, metadata);
-
-      // Handle stream response
-      if (result.type === 'stream') {
-        return reply.code(200).send(result.stream);
-      }
-
-      if (result.type === 'file') {
-        if (result.accelPath) {
-          reply.header('X-Accel-Redirect', result.accelPath);
-          return reply.code(200).send();
-        }
-
-        const stream = createReadStream(result.path);
-        return reply.code(200).send(stream);
-      }
-
-      // Exhaustiveness check - should never reach here with proper types
-      throw new Error(`Unexpected RO-Crate result type: ${(result as { type: string }).type}`);
-    },
-  );
+  });
 };
 
-export default crate;
+export default metadataRoute;

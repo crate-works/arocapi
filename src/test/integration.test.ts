@@ -1,12 +1,17 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AllVisibleSearchFilter, LicenceAccess } from '../app.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { OpenSearchBackend } from '../search/opensearch/opensearch.js';
 import { PostgresBackend } from '../search/postgres/postgres.js';
+import { DirectoryStorage } from '../storage/directory/directory.js';
 import type { AuthorisedEntity, AuthorisedFile } from '../transformers/default.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
 import { describeSearchBackendContract } from './helpers/searchBackendContract.js';
+import { describeStorageContract } from './helpers/storageBackendContract.js';
 import {
   buildTestApp,
   cleanupTestData,
@@ -605,22 +610,16 @@ describe.each(['OpenSearchBackend', 'PostgresBackend'] as const)('Integration Te
       OR: [{ meta: { path: ['draft'], equals: Prisma.AnyNull } }, { meta: { path: ['draft'], not: true } }],
     };
     const hideDraftsSearch = { draft: { not: true } };
-    const stubHandlers = {
-      fileHandler: {
-        get: async () => ({ type: 'redirect' as const, url: 'https://files.example.com/file' }),
-        head: async () => ({ contentType: 'audio/wav', contentLength: 2048 }),
-      },
-      roCrateHandler: {
-        get: async () => ({ type: 'redirect' as const, url: 'https://files.example.com/crate' }),
-        head: async () => ({ contentType: 'application/ld+json', contentLength: 100 }),
-      },
+    const storage = {
+      metadata: () => ({ type: 'redirect' as const, url: 'https://files.example.com/crate' }),
+      content: () => ({ type: 'redirect' as const, url: 'https://files.example.com/file' }),
     };
 
     let app: FastifyInstance;
 
     beforeAll(async () => {
       app = await buildTestApp({
-        ...stubHandlers,
+        storage,
         entityVisibilityFilter: () => hideDrafts,
         searchVisibilityFilter: () => hideDraftsSearch,
         isAuthenticated: ({ request }) => request.headers['x-user'] !== undefined,
@@ -683,7 +682,7 @@ describe.each(['OpenSearchBackend', 'PostgresBackend'] as const)('Integration Te
 
           expect(hidden.statusCode).toBe(401);
           expect(signedInHidden.statusCode).toBe(404);
-          expect(visible.statusCode).toBe(method === 'GET' ? 302 : 200);
+          expect(visible.statusCode).toBe(302);
         },
       );
 
@@ -694,7 +693,7 @@ describe.each(['OpenSearchBackend', 'PostgresBackend'] as const)('Integration Te
 
         expect(hidden.statusCode).toBe(401);
         expect(missing.statusCode).toBe(404);
-        expect(visible.statusCode).toBe(method === 'GET' ? 302 : 200);
+        expect(visible.statusCode).toBe(302);
       });
 
       it('returns 404 for a hidden entity to anonymous requests without the login prompt', async () => {
@@ -799,21 +798,16 @@ describe.each(['OpenSearchBackend', 'PostgresBackend'] as const)('Integration Te
     const entityUrl = (n: number) => encodeURIComponent(`http://example.com/entity/${n}`);
     const restrictedFile = 'http://example.com/entity/5';
     const restrictedMetadata = 'http://example.com/entity/2';
-    const fileHandler = {
-      get: vi.fn(async () => ({ type: 'redirect' as const, url: 'https://files.example.com/file' })),
-      head: vi.fn(async () => ({ contentType: 'audio/wav', contentLength: 2048 })),
-    };
-    const roCrateHandler = {
-      get: vi.fn(async () => ({ type: 'redirect' as const, url: 'https://files.example.com/crate' })),
-      head: vi.fn(async () => ({ contentType: 'application/ld+json', contentLength: 100 })),
+    const storage = {
+      metadata: vi.fn(() => ({ type: 'redirect' as const, url: 'https://files.example.com/crate' })),
+      content: vi.fn(() => ({ type: 'redirect' as const, url: 'https://files.example.com/file' })),
     };
 
     let app: FastifyInstance;
 
     beforeAll(async () => {
       app = await buildTestApp({
-        fileHandler,
-        roCrateHandler,
+        storage,
         access: (entity) => ({
           metadata: entity.id !== restrictedMetadata,
           content: entity.id !== restrictedFile,
@@ -832,30 +826,16 @@ describe.each(['OpenSearchBackend', 'PostgresBackend'] as const)('Integration Te
     });
 
     describe('Content', () => {
-      it('denies GET /file/:id with 403 without calling the file handler', async () => {
-        const denied = await app.inject({ method: 'GET', url: `/file/${entityUrl(5)}` });
-        const body = denied.json<StandardErrorResponse>();
+      it.each(['GET', 'HEAD'] as const)('denies %s /file/:id with 403 without calling storage', async (method) => {
+        const denied = await app.inject({ method, url: `/file/${entityUrl(5)}` });
 
         expect(denied.statusCode).toBe(403);
-        expect(body.error.code).toBe('FORBIDDEN');
-        expect(fileHandler.get).not.toHaveBeenCalled();
+        expect(storage.content).not.toHaveBeenCalled();
 
-        const granted = await app.inject({ method: 'GET', url: `/file/${entityUrl(4)}` });
+        const granted = await app.inject({ method, url: `/file/${entityUrl(4)}` });
 
         expect(granted.statusCode).toBe(302);
-        expect(fileHandler.get).toHaveBeenCalledOnce();
-      });
-
-      it('denies HEAD /file/:id without calling the file handler', async () => {
-        const denied = await app.inject({ method: 'HEAD', url: `/file/${entityUrl(5)}` });
-
-        expect(denied.statusCode).toBe(403);
-        expect(fileHandler.head).not.toHaveBeenCalled();
-
-        const granted = await app.inject({ method: 'HEAD', url: `/file/${entityUrl(4)}` });
-
-        expect(granted.statusCode).toBe(200);
-        expect(fileHandler.head).toHaveBeenCalledOnce();
+        expect(storage.content).toHaveBeenCalledOnce();
       });
 
       it('denies the noRedirect variant without revealing the location', async () => {
@@ -863,28 +843,22 @@ describe.each(['OpenSearchBackend', 'PostgresBackend'] as const)('Integration Te
 
         expect(denied.statusCode).toBe(403);
         expect(denied.body).not.toContain('files.example.com');
-        expect(fileHandler.get).not.toHaveBeenCalled();
+        expect(storage.content).not.toHaveBeenCalled();
       });
     });
 
     describe('Metadata', () => {
-      it.each([
-        ['GET', 'get', 302],
-        ['HEAD', 'head', 200],
-      ] as const)(
-        'denies %s /entity/:id/metadata without calling the RO-Crate handler',
-        async (method, handler, grantedStatus) => {
-          const denied = await app.inject({ method, url: `/entity/${entityUrl(2)}/metadata` });
+      it.each(['GET', 'HEAD'] as const)('denies %s /entity/:id/metadata without calling storage', async (method) => {
+        const denied = await app.inject({ method, url: `/entity/${entityUrl(2)}/metadata` });
 
-          expect(denied.statusCode).toBe(403);
-          expect(roCrateHandler[handler]).not.toHaveBeenCalled();
+        expect(denied.statusCode).toBe(403);
+        expect(storage.metadata).not.toHaveBeenCalled();
 
-          const granted = await app.inject({ method, url: `/entity/${entityUrl(1)}/metadata` });
+        const granted = await app.inject({ method, url: `/entity/${entityUrl(1)}/metadata` });
 
-          expect(granted.statusCode).toBe(grantedStatus);
-          expect(roCrateHandler[handler]).toHaveBeenCalledOnce();
-        },
-      );
+        expect(granted.statusCode).toBe(302);
+        expect(storage.metadata).toHaveBeenCalledOnce();
+      });
     });
 
     describe('access signal', () => {
@@ -1018,8 +992,7 @@ describe.each(['OpenSearchBackend', 'PostgresBackend'] as const)('Integration Te
 
       beforeAll(async () => {
         deniedApp = await buildTestApp({
-          fileHandler,
-          roCrateHandler,
+          storage,
           entityVisibilityFilter: () => ({ id: { not: 'http://example.com/entity/3' } }),
           access: () => ({ metadata: false, content: false }),
           isAuthenticated: ({ request }) => request.headers['x-user'] !== undefined,
@@ -1044,7 +1017,7 @@ describe.each(['OpenSearchBackend', 'PostgresBackend'] as const)('Integration Te
       });
 
       it('refuses with 403 when the repository has no logins', async () => {
-        const noLoginApp = await buildTestApp({ roCrateHandler, access: () => ({ metadata: false, content: false }) });
+        const noLoginApp = await buildTestApp({ storage, access: () => ({ metadata: false, content: false }) });
 
         const response = await noLoginApp.inject({ method: 'GET', url: `/entity/${entityUrl(1)}/metadata` });
         await noLoginApp.close();
@@ -1084,4 +1057,38 @@ describe.each(['OpenSearchBackend', 'PostgresBackend'] as const)('Integration Te
       },
     });
   }
+});
+
+describe('Storage backends', () => {
+  beforeAll(async () => {
+    await setupIntegrationTests('PostgresBackend');
+  });
+
+  afterAll(async () => {
+    await teardownIntegrationTests();
+  });
+
+  describe('DirectoryStorage', () => {
+    let root: string;
+
+    beforeAll(async () => {
+      root = await mkdtemp(join(tmpdir(), 'arocapi-directory-'));
+    });
+
+    afterAll(async () => {
+      await rm(root, { recursive: true });
+    });
+
+    describeStorageContract<string>('DirectoryStorage', {
+      create: (locate) => DirectoryStorage({ root, locate }),
+      prepare: async (items) => {
+        for (const { path, body } of items) {
+          await mkdir(dirname(join(root, path)), { recursive: true });
+          await writeFile(join(root, path), body);
+        }
+      },
+      meta: (path) => ({ storagePath: path }),
+      key: (path) => path,
+    });
+  });
 });

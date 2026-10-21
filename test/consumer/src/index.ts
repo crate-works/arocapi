@@ -4,13 +4,19 @@ import arocapi, {
   AllPublicAccess,
   AllVisibleSearchFilter,
   type ArocapiPrismaClient,
+  type ContentSource,
+  type DirectoryStorageMeta,
   type EntityVisibilityFilter,
-  type FileHandler,
-  type RoCrateHandler,
+  type MetadataSource,
+  type OcflLocation,
+  type OcflStorageMeta,
+  type S3StorageMeta,
+  type StorageBackend,
 } from 'arocapi';
 import { OpenSearchBackend } from 'arocapi/search/opensearch';
+import { DirectoryStorage } from 'arocapi/storage/directory';
 import Fastify from 'fastify';
-import type { File, Prisma, PrismaClient } from './generated/prisma/client.ts';
+import type { Entity, File, Prisma, PrismaClient } from './generated/prisma/client.ts';
 
 declare const prisma: PrismaClient;
 declare const opensearch: Client;
@@ -34,16 +40,35 @@ export const ownTypeFilter: EntityVisibilityFilter = () => ownWhere;
 // @ts-expect-error entityTypo isn't an Entity field
 export const typoFilter: EntityVisibilityFilter = () => ({ entityTypo: 'x' });
 
-// Handlers may be written against the consumer's own row types
-export const fileHandler: FileHandler = {
-  get: (file: File) => ({ type: 'redirect', url: `https://files.example.org/${file.id}` }),
-  head: (file: File) => ({ contentType: file.mediaType, contentLength: Number(file.size) }),
-};
+// Halves may be written against the consumer's own row types
+export const content: ContentSource = (file: File, entity: Entity, { contentDisposition }) => ({
+  type: 'redirect',
+  url: `https://files.example.org/${entity.id}/${file.filename}?disposition=${encodeURIComponent(contentDisposition)}`,
+});
 
-export const roCrateHandler: RoCrateHandler = {
-  get: () => false,
-  head: () => false,
-};
+export const metadata: MetadataSource = async (entity: Entity) => ({ type: 'json', value: entity.meta });
+
+// @ts-expect-error a content half can't return json
+export const jsonContent: ContentSource = () => ({ type: 'json', value: {} });
+
+// Mixing halves from different sources
+export const storage: StorageBackend = { metadata, content: DirectoryStorage({ root: '/data' }).content };
+
+export const located = DirectoryStorage({
+  root: '/data',
+  locate: {
+    metadata: (entity: Entity) => `${entity.id}/ro-crate-metadata.json`,
+    content: async (file: File) => file.filename,
+  },
+});
+
+// The meta shapes the reference backends read are what an indexer writes
+export const metas: Prisma.InputJsonObject[] = [
+  { storagePath: 'item/a.wav' } satisfies DirectoryStorageMeta,
+  { storageKey: 'item/a.wav' } satisfies S3StorageMeta,
+  { ocflObject: 'http://example.org/item', ocflPath: 'a.wav' } satisfies OcflStorageMeta,
+];
+export const location: OcflLocation = { object: 'http://example.org/item', path: 'a.wav' };
 
 export const fastify = Fastify();
 
@@ -51,8 +76,7 @@ fastify.register(arocapi, {
   prisma,
   search: OpenSearchBackend({ client: opensearch, fields: { name: { type: 'text' } } }),
   access: AllPublicAccess,
-  fileHandler,
-  roCrateHandler,
+  storage,
   entityVisibilityFilter,
   searchVisibilityFilter: AllVisibleSearchFilter,
 });

@@ -1,30 +1,18 @@
-import type { RoCrateHandler } from 'arocapi';
+import type { MetadataSource } from 'arocapi';
 
 const storageRoot = process.env.STORAGE_ROOT ?? '/srv/archive';
 
-// Your storage's helpers
-declare function readCrate(path: string): Promise<{ text: string; modified: Date }>;
-declare function toStream(text: string): ReadableStream;
+type Crate = { '@graph': Array<Record<string, unknown>> };
 
-type EntityMeta = { cratePath: string };
+// Your storage's helper
+declare function readCrate(path: string): Promise<Crate>;
 
-export const roCrateHandler: RoCrateHandler = {
-  get: async (entity) => {
-    const crate = await readCrate(`${storageRoot}/${(entity.meta as EntityMeta).cratePath}`);
+type EntityMeta = { storagePath: string };
 
-    return {
-      type: 'stream',
-      stream: toStream(crate.text),
-      metadata: {
-        contentType: 'application/ld+json',
-        contentLength: Buffer.byteLength(crate.text),
-        lastModified: crate.modified,
-      },
-    };
-  },
-  head: async (entity) => {
-    const crate = await readCrate(`${storageRoot}/${(entity.meta as EntityMeta).cratePath}`);
+// Read the crate and redact it; arocapi serialises the value and sets its length and ETag
+export const metadata: MetadataSource = async (entity) => {
+  const crate = await readCrate(`${storageRoot}/${(entity.meta as EntityMeta).storagePath}`);
+  const graph = crate['@graph'].map(({ email: _email, ...node }) => node);
 
-    return { contentType: 'application/ld+json', contentLength: Buffer.byteLength(crate.text) };
-  },
+  return { type: 'json', value: { ...crate, '@graph': graph } };
 };

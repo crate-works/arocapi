@@ -7,7 +7,8 @@
   "exports": {
     ".": "./dist/app.js",
     "./search/opensearch": "./dist/search/opensearch/opensearch.js",
-    "./search/postgres": "./dist/search/postgres/postgres.js"
+    "./search/postgres": "./dist/search/postgres/postgres.js",
+    "./storage/directory": "./dist/storage/directory/directory.js"
   },
   "keywords": [
     "rocrate",

@@ -25,8 +25,8 @@ arocapi needs seven options:
   ([Visibility](/configuration/visibility/)).
 - `access`: whether a request may read a visible entity's full RO-Crate metadata and, for a file, its content
   ([Access](/configuration/access/)).
-- `fileHandler` and `roCrateHandler`: how to fetch a file's content and an entity's RO-Crate metadata from your
-  storage ([Handlers](/configuration/handlers/)).
+- `storage`: where a file's content and an entity's RO-Crate metadata come from
+  ([Storage](/configuration/storage/)).
 
 Every one of these functions gets the request context, `{ request, fastify }`, so its answer can depend on who is
 asking. This first API answers the same for everyone: every entity is visible and every entity is accessible.
@@ -34,8 +34,9 @@ asking. This first API answers the same for everyone: every entity is visible an
 
 <Code code={firstApiIndex} lang="ts" title="src/index.ts" />
 
-The handlers only run after visibility and access have passed, so they never need to check either. Returning `false`
-from a handler gives a 404. [Storage strategies](/strategies/storage/) covers other ways to serve content, such as
+`DirectoryStorage` serves files below `./data`, at the path stored in each row's `meta.storagePath`. A row without
+one, or a path with no file, gives a 404. The storage backend only runs after visibility and access have passed, so it
+never needs to check either. [Storage strategies](/strategies/storage/) covers other ways to serve content, such as
 redirecting to object storage.
 
 ## Add an entity
@@ -69,7 +70,7 @@ Then a script that records both entities in the database, then indexes their sea
 <Code code={firstApiSeed} lang="ts" title="scripts/seed.ts" />
 
 A file is two rows: an `Entity` that gives it its place in the collection and its licences, and a `File` with the same
-ID that describes the bytes.
+ID that describes the bytes. Each `storagePath` is relative to the `./data` root given to `DirectoryStorage`.
 
 ```sh
 node --env-file=.env scripts/seed.ts

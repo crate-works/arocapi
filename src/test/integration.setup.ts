@@ -57,20 +57,12 @@ export async function buildTestApp(overrides: Partial<Options> = {}) {
     access: AllPublicAccess,
     entityVisibilityFilter: AllVisibleEntityFilter,
     searchVisibilityFilter: AllVisibleSearchFilter,
-    fileHandler: {
-      get: async () => {
-        throw new Error('File handler not implemented in integration tests');
+    storage: {
+      metadata: () => {
+        throw new Error('Storage is not configured in this integration test');
       },
-      head: async () => {
-        throw new Error('File handler not implemented in integration tests');
-      },
-    },
-    roCrateHandler: {
-      get: async () => {
-        throw new Error('RO-Crate handler not implemented in integration tests');
-      },
-      head: async () => {
-        throw new Error('RO-Crate head handler not implemented in integration tests');
+      content: () => {
+        throw new Error('Storage is not configured in this integration test');
       },
     },
     ...overrides,
