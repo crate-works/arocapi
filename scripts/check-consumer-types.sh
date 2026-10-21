@@ -9,7 +9,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 stage=$tmp/stage
 mkdir -p "$stage/prisma" "$tmp/extract"
-cp "$root/package.json" "$root/README.md" "$root/prisma.config.ts" "$stage/"
+cp "$root/package.json" "$root/README.md" "$stage/"
 cp -r "$root/prisma/models" "$stage/prisma/models"
 "$root/node_modules/.bin/tsc" -p "$root" --emitDeclarationOnly --outDir "$stage/dist"
 (cd "$stage" && pnpm pack --pack-destination "$tmp" >/dev/null)

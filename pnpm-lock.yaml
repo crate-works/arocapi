@@ -169,15 +169,9 @@ importers:
       '@fastify/sensible':
         specifier: ^6.0.7
         version: 6.0.7
-      '@prisma/config':
-        specifier: ^7.10.1
-        version: 7.10.1(magicast@0.5.5)
       content-disposition:
         specifier: ^3.0.0
         version: 3.0.0
-      dotenv:
-        specifier: ^18.0.8
-        version: 18.0.8
       fastify:
         specifier: ^5.12.5
         version: 5.12.7
@@ -206,6 +200,9 @@ importers:
       '@prisma/client':
         specifier: ^7.10.1
         version: 7.10.1(prisma@7.10.1(@types/node@26.6.5)(@types/react@19.3.0)(magicast@0.5.5)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(typescript@7.0.2))(typescript@7.0.2)
+      '@prisma/config':
+        specifier: ^7.10.1
+        version: 7.10.1(magicast@0.5.5)
       '@semantic-release/changelog':
         specifier: ^7.0.0
         version: 7.0.0(semantic-release@25.0.9(supports-color@10.2.2)(typescript@7.0.2))
@@ -230,6 +227,9 @@ importers:
       conventional-changelog-conventionalcommits:
         specifier: ^9.3.1
         version: 9.3.1
+      dotenv:
+        specifier: ^18.0.8
+        version: 18.0.8
       fastify-tsconfig:
         specifier: ^3.0.0
         version: 3.0.0
