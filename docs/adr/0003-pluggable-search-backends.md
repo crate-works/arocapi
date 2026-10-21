@@ -41,9 +41,9 @@ itself honestly.
   `queryBuilderClass` and `queryBuilderOptions` options and the
   `OpensearchQueryBuilder` export are removed.
 - Reference backends are exported factories, `OpenSearchBackend({...})` from
-  `arocapi/opensearch` and `PostgresBackend({...})` from `arocapi/postgres`, so
-  `@opensearch-project/opensearch` is an optional peer dependency that only
-  OpenSearch consumers install. They are customised through
+  `arocapi/search/opensearch` and `PostgresBackend({...})` from
+  `arocapi/search/postgres`, so `@opensearch-project/opensearch` is an optional
+  peer dependency that only OpenSearch consumers install. They are customised through
   options only, with no subclassing or protected hooks, so their internals can
   change without a major release. A consumer's own backend is an object
   literal typed `SearchBackend`.

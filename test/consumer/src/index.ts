@@ -8,7 +8,7 @@ import arocapi, {
   type FileHandler,
   type RoCrateHandler,
 } from 'arocapi';
-import { OpenSearchBackend } from 'arocapi/opensearch';
+import { OpenSearchBackend } from 'arocapi/search/opensearch';
 import Fastify from 'fastify';
 import type { File, Prisma, PrismaClient } from './generated/prisma/client.ts';
 

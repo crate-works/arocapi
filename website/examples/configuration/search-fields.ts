@@ -1,6 +1,6 @@
 import { Client } from '@opensearch-project/opensearch';
 import type { FieldDeclarations } from 'arocapi';
-import { OpenSearchBackend } from 'arocapi/opensearch';
+import { OpenSearchBackend } from 'arocapi/search/opensearch';
 
 const fields = {
   name: { type: 'text', weight: 3, sort: true, label: 'Name' },
