@@ -169,9 +169,6 @@ importers:
       '@fastify/sensible':
         specifier: ^6.0.7
         version: 6.0.7
-      '@opensearch-project/opensearch':
-        specifier: ^3.9.0
-        version: 3.9.0(supports-color@10.2.2)
       '@prisma/config':
         specifier: ^7.10.1
         version: 7.10.1(magicast@0.5.5)
@@ -200,6 +197,9 @@ importers:
       '@commitlint/config-conventional':
         specifier: ^21.2.4
         version: 21.2.4
+      '@opensearch-project/opensearch':
+        specifier: ^3.9.0
+        version: 3.9.0(supports-color@10.2.2)
       '@prisma/adapter-pg':
         specifier: ^7.10.1
         version: 7.10.1

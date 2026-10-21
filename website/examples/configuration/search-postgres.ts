@@ -1,5 +1,6 @@
 import { PrismaPg } from '@prisma/adapter-pg';
-import { type FieldDeclarations, PostgresBackend } from 'arocapi';
+import type { FieldDeclarations } from 'arocapi';
+import { PostgresBackend } from 'arocapi/postgres';
 import { PrismaClient } from './generated/prisma/client.ts';
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });

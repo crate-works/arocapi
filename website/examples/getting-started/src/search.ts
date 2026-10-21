@@ -1,5 +1,5 @@
 import { Client } from '@opensearch-project/opensearch';
-import { OpenSearchBackend } from 'arocapi';
+import { OpenSearchBackend } from 'arocapi/opensearch';
 
 export const opensearch = new Client({ node: process.env.OPENSEARCH_URL });
 

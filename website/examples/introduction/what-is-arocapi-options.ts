@@ -5,10 +5,10 @@ import {
   AllVisibleEntityFilter,
   AllVisibleSearchFilter,
   type FileHandler,
-  OpenSearchBackend,
   type Options,
   type RoCrateHandler,
 } from 'arocapi';
+import { OpenSearchBackend } from 'arocapi/opensearch';
 import { PrismaClient } from './generated/prisma/client.ts';
 
 // Your storage, see Handlers

@@ -3,15 +3,11 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 import type { Options } from '../app.js';
-import app, {
-  AllPublicAccess,
-  AllVisibleEntityFilter,
-  AllVisibleSearchFilter,
-  OpenSearchBackend,
-  PostgresBackend,
-} from '../app.js';
+import app, { AllPublicAccess, AllVisibleEntityFilter, AllVisibleSearchFilter } from '../app.js';
 import { PrismaClient } from '../generated/prisma/client.js';
 import type { FieldDeclarations } from '../search/fields.js';
+import { OpenSearchBackend } from '../search/opensearch/opensearch.js';
+import { PostgresBackend } from '../search/postgres/postgres.js';
 
 export type TestBackend = 'OpenSearchBackend' | 'PostgresBackend';
 

@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AllVisibleSearchFilter, LicenceAccess, OpenSearchBackend, PostgresBackend } from '../app.js';
+import { AllVisibleSearchFilter, LicenceAccess } from '../app.js';
 import { Prisma } from '../generated/prisma/client.js';
+import { OpenSearchBackend } from '../search/opensearch/opensearch.js';
+import { PostgresBackend } from '../search/postgres/postgres.js';
 import type { AuthorisedEntity, AuthorisedFile } from '../transformers/default.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
 import { describeSearchBackendContract } from './helpers/searchBackendContract.js';

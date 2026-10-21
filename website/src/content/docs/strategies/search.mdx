@@ -71,8 +71,9 @@ order, differ.
 On small hardware, or wherever running OpenSearch isn't worth it, search with Postgres alone:
 
 1. Drop the `opensearch` service from your Compose file, and `@opensearch-project/opensearch` from your packages.
-2. Swap `OpenSearchBackend({ client, fields })` for [`PostgresBackend({ prisma, fields })`](/configuration/search/#postgresbackend),
-   with the same `fields`, and drop the `createIndex()` call.
+2. Swap `OpenSearchBackend({ client, fields })` from `arocapi/opensearch` for
+   [`PostgresBackend({ prisma, fields })`](/configuration/search/#postgresbackend) from `arocapi/postgres`, with the
+   same `fields`, and drop the `createIndex()` call.
 3. Index your entities again with the same `index` calls. The `EntitySearch` table is already in your database from
    `prisma migrate`.
 

@@ -6,9 +6,9 @@ import arocapi, {
   type ArocapiPrismaClient,
   type EntityVisibilityFilter,
   type FileHandler,
-  OpenSearchBackend,
   type RoCrateHandler,
 } from 'arocapi';
+import { OpenSearchBackend } from 'arocapi/opensearch';
 import Fastify from 'fastify';
 import type { File, Prisma, PrismaClient } from './generated/prisma/client.ts';
 

@@ -5,7 +5,9 @@
   "description": "An RO-Crate API",
   "main": "dist/app.js",
   "exports": {
-    ".": "./dist/app.js"
+    ".": "./dist/app.js",
+    "./opensearch": "./dist/search/opensearch/opensearch.js",
+    "./postgres": "./dist/search/postgres/postgres.js"
   },
   "keywords": [
     "rocrate",
@@ -15,7 +17,6 @@
   "license": "ISC",
   "dependencies": {
     "@fastify/sensible": "^6.0.7",
-    "@opensearch-project/opensearch": "^3.9.0",
     "@prisma/config": "^7.10.1",
     "content-disposition": "^3.0.0",
     "dotenv": "^18.0.8",
@@ -27,6 +28,7 @@
     "@biomejs/biome": "^2.5.15",
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
+    "@opensearch-project/opensearch": "^3.9.0",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
     "@semantic-release/changelog": "^7.0.0",
@@ -48,6 +50,7 @@
     "vitest-mock-extended": "^5.1.1"
   },
   "peerDependencies": {
+    "@opensearch-project/opensearch": "^3.9.0",
     "@prisma/client": "^7.10.0"
   },
   "files": [
@@ -94,5 +97,10 @@
     "registry": "https://registry.npmjs.org/",
     "provenance": true
   },
-  "packageManager": "pnpm@12.11.2"
+  "packageManager": "pnpm@12.11.2",
+  "peerDependenciesMeta": {
+    "@opensearch-project/opensearch": {
+      "optional": true
+    }
+  }
 }

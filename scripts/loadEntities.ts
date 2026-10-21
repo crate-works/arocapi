@@ -1,8 +1,9 @@
 import 'dotenv/config';
 import { Client } from '@opensearch-project/opensearch';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { type FieldDeclarations, OpenSearchBackend } from '../src/app.js';
+import type { FieldDeclarations } from '../src/app.js';
 import { PrismaClient } from '../src/generated/prisma/client.js';
+import { OpenSearchBackend } from '../src/search/opensearch/opensearch.js';
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
 

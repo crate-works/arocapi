@@ -73,6 +73,8 @@ To rebuild an index, loop `index` over your entities.
 
 ## `OpenSearchBackend`
 
+Import it from `arocapi/opensearch`. It needs `@opensearch-project/opensearch` installed, an optional peer dependency.
+
 | Option      | Required | Type                                   | Default    | Purpose                          |
 | ----------- | -------- | -------------------------------------- | ---------- | -------------------------------- |
 | `client`    | yes      | `Client` from `@opensearch-project/opensearch` | none | You own the client and its connections. |
@@ -100,6 +102,8 @@ In an advanced query, a `text` value matches all its words (`match` with `operat
 matches exactly, and `NOT` is `must_not`.
 
 ## `PostgresBackend`
+
+Import it from `arocapi/postgres`.
 
 | Option   | Required | Type               | Default | Purpose                                                        |
 | -------- | -------- | ------------------ | ------- | -------------------------------------------------------------- |

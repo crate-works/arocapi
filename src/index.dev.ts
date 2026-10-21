@@ -11,11 +11,11 @@ import arocapi, {
   type EntityTransformer,
   type FieldDeclarations,
   type FileHandler,
-  OpenSearchBackend,
   type RoCrateHandler,
 } from './app.js';
 import type { Entity, File } from './generated/prisma/client.js';
 import { PrismaClient } from './generated/prisma/client.js';
+import { OpenSearchBackend } from './search/opensearch/opensearch.js';
 
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is not set');

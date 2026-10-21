@@ -4,10 +4,7 @@ import {
   type BackendSearchCapability,
   capabilitiesFromFields,
   checkSearchVisibility,
-  OpenSearchBackend,
   type Options,
-  PostgresBackend,
-  type PostgresClient,
   type SearchBackend,
   type SearchDocument,
   SearchQueryError,
@@ -16,6 +13,8 @@ import {
   type SearchVisibilityWhere,
   type VisibilityCondition,
 } from 'arocapi';
+import { OpenSearchBackend } from 'arocapi/opensearch';
+import { PostgresBackend, type PostgresClient } from 'arocapi/postgres';
 
 declare const client: Client;
 declare const prisma: PostgresClient;
