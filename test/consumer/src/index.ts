@@ -16,6 +16,7 @@ import arocapi, {
 } from 'arocapi';
 import { OpenSearchBackend } from 'arocapi/search/opensearch';
 import { DirectoryStorage } from 'arocapi/storage/directory';
+import { EntityMetaMetadata } from 'arocapi/storage/entity-meta';
 import { S3Storage } from 'arocapi/storage/s3';
 import Fastify from 'fastify';
 import type { Entity, File, Prisma, PrismaClient } from './generated/prisma/client.ts';
@@ -56,6 +57,10 @@ export const jsonContent: ContentSource = () => ({ type: 'json', value: {} });
 
 // Mixing halves from different sources
 export const storage: StorageBackend = { metadata, content: DirectoryStorage({ root: '/data' }).content };
+export const fromMeta: StorageBackend = {
+  metadata: EntityMetaMetadata({ key: 'crate' }),
+  content: DirectoryStorage({ root: '/data' }).content,
+};
 
 export const located = DirectoryStorage({
   root: '/data',

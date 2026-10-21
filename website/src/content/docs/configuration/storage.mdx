@@ -1,19 +1,21 @@
 ---
 title: Storage
-description: The storage backend that delivers Metadata and Content, and the DirectoryStorage and S3Storage options.
+description: The storage backend that delivers Metadata and Content, mixing sources, and each reference backend's options.
 sidebar:
   order: 4
 ---
 
 import { Code } from '@astrojs/starlight/components';
 import storageDirectory from '@examples/configuration/storage-directory.ts?raw';
+import storageEntityMeta from '@examples/configuration/storage-entity-meta.ts?raw';
 import storageMixing from '@examples/configuration/storage-mixing.ts?raw';
 import storageS3 from '@examples/configuration/storage-s3.ts?raw';
 
 `GET` and `HEAD /entity/:id/metadata` and `/file/:id` go through a storage backend. arocapi calls it only after the
 entity is Visible and the request has access, so it doesn't need its own checks (see the [request
 lifecycle](/concepts/request-lifecycle/#metadata-and-content-routes)). arocapi ships
-[`DirectoryStorage`](#directorystorage) and [`S3Storage`](#s3storage), or you can [write your own](/reference/storage-backend/).
+[`DirectoryStorage`](#directorystorage), the Metadata half [`EntityMetaMetadata`](#entitymetametadata) and
+[`S3Storage`](#s3storage), or you can [write your own](/reference/storage-backend/).
 [Storage](/strategies/storage/) compares ways to serve bytes.
 
 | Option    | Required | Type             | Default | Purpose                                                    |
@@ -38,10 +40,14 @@ bytes; see [Entity meta](/reference/entity-meta/#storage-keys).
 
 ## Mixing sources
 
-The reference backends return both halves as a plain object, so either half can be replaced by another source. Here
-Metadata comes from the database and Content from disk:
+The reference backends return both halves as a plain object, so either half can be replaced by another source: a
+reference backend's half, a half-only source such as `EntityMetaMetadata`, or [your
+own](/reference/storage-backend/). Here Metadata comes from the database and Content from disk:
 
 <Code code={storageMixing} lang="ts" />
+
+Each half reads its own key from `meta`, so one row can carry both, for example `rocrate` for Metadata beside
+`storagePath` for Content.
 
 ## `DirectoryStorage`
 
@@ -64,6 +70,25 @@ key names the RO-Crate metadata file itself, so several entities can share one.
 
 Content-Length and Last-Modified come from the file, with a weak ETag from its size and modification time.
 Content-Type comes from `File.mediaType`; Metadata is always `application/ld+json`.
+
+## `EntityMetaMetadata`
+
+A Metadata half only, for RO-Crate metadata kept in the database: it serves the JSON object at a key in `Entity.meta`.
+Pair it with another source's `content`, as in [Mixing sources](#mixing-sources). Import it from
+`arocapi/storage/entity-meta`:
+
+<Code code={storageEntityMeta} lang="ts" />
+
+| Option | Required | Type   | Default   | Purpose                                                 |
+| ------ | -------- | ------ | --------- | ------------------------------------------------------- |
+| `key`  | no       | string | `rocrate` | The key in `Entity.meta` holding the RO-Crate metadata. |
+
+- A missing key is a 404.
+- A value that isn't a JSON object (a string, array, number, boolean or `null`) is a 500, logged with the entity id and
+  key, so an indexing bug isn't served as Metadata.
+
+arocapi serialises the object once, with its Content-Length and a strong ETag from those bytes, and no Last-Modified.
+PostgreSQL stores `meta` as `jsonb`, so key order and whitespace aren't kept from what you wrote.
 
 ## `S3Storage`
 

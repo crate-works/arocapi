@@ -8,6 +8,7 @@ import { Prisma } from '../generated/prisma/client.js';
 import { OpenSearchBackend } from '../search/opensearch/opensearch.js';
 import { PostgresBackend } from '../search/postgres/postgres.js';
 import { DirectoryStorage } from '../storage/directory/directory.js';
+import { EntityMetaMetadata } from '../storage/entity-meta/entity-meta.js';
 import { S3Storage } from '../storage/s3/s3.js';
 import type { AuthorisedEntity, AuthorisedFile } from '../transformers/default.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
@@ -1091,6 +1092,39 @@ describe('Storage backends', () => {
       },
       meta: (path) => ({ storagePath: path }),
       key: (path) => path,
+    });
+  });
+
+  describe('EntityMetaMetadata', () => {
+    let root: string;
+    const crates = new Map<string, Prisma.InputJsonObject>();
+
+    beforeAll(async () => {
+      root = await mkdtemp(join(tmpdir(), 'arocapi-entity-meta-'));
+    });
+
+    afterAll(async () => {
+      await rm(root, { recursive: true });
+    });
+
+    describeStorageContract<string>('EntityMetaMetadata mixed with DirectoryStorage', {
+      create: (locate) => ({
+        metadata: EntityMetaMetadata(),
+        content: DirectoryStorage({ root, locate: { content: locate?.content } }).content,
+      }),
+      prepare: async (items) => {
+        for (const { path, body } of items) {
+          if (path.endsWith('.json')) {
+            crates.set(path, JSON.parse(body) as Prisma.InputJsonObject);
+          } else {
+            await mkdir(dirname(join(root, path)), { recursive: true });
+            await writeFile(join(root, path), body);
+          }
+        }
+      },
+      meta: (path) => ({ storagePath: path, ...(crates.has(path) && { rocrate: crates.get(path) }) }),
+      key: (path) => path,
+      keylessMetadata: true,
     });
   });
 

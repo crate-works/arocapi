@@ -1,13 +1,9 @@
-import type { MetadataSource, StorageBackend } from 'arocapi';
+import type { StorageBackend } from 'arocapi';
 import { DirectoryStorage } from 'arocapi/storage/directory';
+import { EntityMetaMetadata } from 'arocapi/storage/entity-meta';
 
-const directory = DirectoryStorage({ root: '/srv/archive' });
-
-// Metadata kept in the database, Content on disk
-const metadata: MetadataSource = (entity) => {
-  const { rocrate } = (entity.meta ?? {}) as { rocrate?: object };
-
-  return rocrate ? { type: 'json', value: rocrate } : null;
+// Metadata kept in the database at Entity.meta.rocrate, Content on disk
+export const storage: StorageBackend = {
+  metadata: EntityMetaMetadata(),
+  content: DirectoryStorage({ root: '/srv/archive' }).content,
 };
-
-export const storage: StorageBackend = { metadata, content: directory.content };

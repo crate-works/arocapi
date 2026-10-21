@@ -9,6 +9,7 @@
     "./search/opensearch": "./dist/search/opensearch/opensearch.js",
     "./search/postgres": "./dist/search/postgres/postgres.js",
     "./storage/directory": "./dist/storage/directory/directory.js",
+    "./storage/entity-meta": "./dist/storage/entity-meta/entity-meta.js",
     "./storage/s3": "./dist/storage/s3/s3.js"
   },
   "keywords": [

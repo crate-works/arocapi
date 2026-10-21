@@ -16,6 +16,8 @@ export type StorageContractHarness<Key = string> = {
   meta: (path: string) => Prisma.InputJsonObject;
   /** What a custom `locate` returns for the item stored at `path` */
   key: (path: string) => Key;
+  /** Metadata is a value in `meta`, re-serialised, rather than stored bytes: no Storage key, `locate.metadata` or Last-Modified */
+  keylessMetadata?: true;
 };
 
 const crate = JSON.stringify({ '@context': 'https://w3id.org/ro/crate/1.2/context', '@graph': [{ name: 'Ŋaŋa' }] });
@@ -84,6 +86,8 @@ const serve = async (instance: FastifyInstance, method: 'GET' | 'HEAD', url: str
  * The `/entity/:id/metadata` and `/file/:id` cases every stored reference backend must pass
  */
 export const describeStorageContract = <Key>(name: string, harness: StorageContractHarness<Key>) => {
+  const keyed = !harness.keylessMetadata;
+
   describe(`${name} storage contract`, () => {
     const entityUrl = (name: string) => `/entity/${encodeURIComponent(id(name))}/metadata`;
     const fileUrl = (name: string, query = '') => `/file/${encodeURIComponent(id(name))}${query}`;
@@ -146,11 +150,17 @@ export const describeStorageContract = <Key>(name: string, harness: StorageContr
         const { get, head } = await getAndHead(entityUrl('collection'));
 
         expect(get.statusCode).toBe(200);
-        expect(get.body).toBe(crateItem.body);
+        if (keyed) {
+          expect(get.body).toBe(crateItem.body);
+        } else {
+          expect(JSON.parse(get.body)).toEqual(JSON.parse(crateItem.body));
+        }
         expect(get.headers['content-type']).toBe('application/ld+json');
-        expect(get.headers['content-length']).toBe(String(Buffer.byteLength(crateItem.body)));
+        expect(get.headers['content-length']).toBe(String(Buffer.byteLength(get.body)));
         expect(get.headers.etag).toBeDefined();
-        expect(get.headers['last-modified']).toBeDefined();
+        if (keyed) {
+          expect(get.headers['last-modified']).toBeDefined();
+        }
         expect(head.statusCode).toBe(200);
         expect(head.body).toBe('');
         expect(head.headers).toEqual(get.headers);
@@ -163,13 +173,15 @@ export const describeStorageContract = <Key>(name: string, harness: StorageContr
         expect(head.statusCode).toBe(404);
       });
 
-      it.each(['absolute-crate', 'parent-crate'])('refuses the unsafe key of %s with 500', async (name) => {
-        const { get, head } = await getAndHead(entityUrl(name));
+      if (keyed) {
+        it.each(['absolute-crate', 'parent-crate'])('refuses the unsafe key of %s with 500', async (name) => {
+          const { get, head } = await getAndHead(entityUrl(name));
 
-        expect(get.statusCode).toBe(500);
-        expect(get.body).not.toContain('passwd');
-        expect(head.statusCode).toBe(500);
-      });
+          expect(get.statusCode).toBe(500);
+          expect(get.body).not.toContain('passwd');
+          expect(head.statusCode).toBe(500);
+        });
+      }
     });
 
     describe('Content', () => {
@@ -251,8 +263,10 @@ export const describeStorageContract = <Key>(name: string, harness: StorageContr
         const metadata = await serve(located, 'GET', entityUrl('no-key'));
         const content = await serve(located, 'GET', fileUrl('no-key.wav'));
 
-        expect(metadata.statusCode).toBe(200);
-        expect(metadata.body).toBe(crateItem.body);
+        if (keyed) {
+          expect(metadata.statusCode).toBe(200);
+          expect(metadata.body).toBe(crateItem.body);
+        }
         expect(content.statusCode).toBe(200);
         expect(content.body).toBe(wavItem.body);
       });
@@ -261,7 +275,9 @@ export const describeStorageContract = <Key>(name: string, harness: StorageContr
         const metadata = await serve(located, 'GET', entityUrl('collection'));
         const content = await serve(located, 'GET', fileUrl('greeting.wav'));
 
-        expect(metadata.statusCode).toBe(404);
+        if (keyed) {
+          expect(metadata.statusCode).toBe(404);
+        }
         expect(content.statusCode).toBe(404);
       });
 
@@ -269,7 +285,9 @@ export const describeStorageContract = <Key>(name: string, harness: StorageContr
         const metadata = await serve(located, 'GET', entityUrl('absolute-crate'));
         const content = await serve(located, 'GET', fileUrl('absolute.wav'));
 
-        expect(metadata.statusCode).toBe(500);
+        if (keyed) {
+          expect(metadata.statusCode).toBe(500);
+        }
         expect(content.statusCode).toBe(500);
       });
     });
