@@ -68,6 +68,8 @@ key names the RO-Crate metadata file itself, so several entities can share one.
 - A `storagePath` that isn't a string, `null` included, is a 500, logged with the entity id and key.
 - A key that is absolute or has a `..` segment is a 500, before anything is read. An absolute `storagePath` written
   for arocapi 4 fails this way rather than being read as relative.
+- Symlinks below `root` are followed, even to files outside it. The key check guards what `meta` and `locate` can
+  name; anyone who can write to `root` is trusted.
 
 Content-Length and Last-Modified come from the file, with a weak ETag from its size and modification time.
 Content-Type comes from `File.mediaType`; Metadata is always `application/ld+json`.
@@ -165,6 +167,8 @@ object id and `path` a logical path in the object's head version.
   is a logical path that is absolute or has a `..` segment. An object id is any string, mapped by the storage layout.
 - An inventory that fails its sidecar digest check or won't parse is a 500, as is an object root outside the storage
   root, or a manifest path outside its object or not naming a file. A request made while a writer swaps an inventory may also get a 500.
+- These checks compare paths, not symlink targets. OCFL forbids symlinks in a storage root; any present are followed,
+  even outside the root, so keep the root writable only by trusted tools.
 
 Content-Length and Last-Modified come from the file on disk, with a strong ETag from its inventory digest.
 Content-Type comes from `File.mediaType`; Metadata is always `application/ld+json`.

@@ -123,7 +123,9 @@ not preclude it.
   for each shape its reference backends read and checks it at runtime.
 - A key or path that is absolute or has a `..` segment throws before any
   read or presign, whether it came from `meta` or from `locate`, on every
-  backend (including S3, where `..` is legal).
+  backend (including S3, where `..` is legal). The check guards keys, not
+  the filesystem: a storage root is trusted, and `DirectoryStorage` and
+  `OcflStorage` follow symlinks below it, even ones pointing outside it.
 
 ### Reference backends
 

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -49,6 +49,21 @@ describe('DirectoryStorage', () => {
     const storage = DirectoryStorage({ root });
 
     await expect(storage.content({ ...file, meta: { storagePath: 'item' } }, entity, context)).resolves.toBeNull();
+  });
+
+  it('follows a symlink below root to a file outside it', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'arocapi-outside-'));
+    await writeFile(join(outside, 'linked.wav'), 'outside');
+    await symlink(join(outside, 'linked.wav'), join(root, 'linked.wav'));
+    const storage = DirectoryStorage({ root });
+
+    try {
+      await expect(
+        storage.content({ ...file, meta: { storagePath: 'linked.wav' } }, entity, context),
+      ).resolves.toMatchObject({ type: 'path', path: join(root, 'linked.wav') });
+    } finally {
+      await rm(outside, { recursive: true });
+    }
   });
 
   it('throws when storage cannot be read', async () => {
