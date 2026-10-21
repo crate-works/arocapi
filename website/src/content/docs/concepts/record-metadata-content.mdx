@@ -38,19 +38,19 @@ taken from the file's own entity.
 ## Metadata
 
 The Metadata is the entity's complete RO-Crate metadata document, served by `GET /entity/:id/metadata` through your
-`roCrateHandler`. It can hold far more than the Record: people, places, notes and anything else you
+storage backend's `metadata` half. It can hold far more than the Record: people, places, notes and anything else you
 record about it. That's why it has its own licence and its own check.
 
-A request reaches your handler only if the entity is Visible and `access.metadata` is true for it. arocapi doesn't
-serve partly redacted Metadata. If some requests should see a reduced version, grant them Metadata access and return
-it from your handler.
+A request reaches your storage backend only if the entity is Visible and `access.metadata` is true for it. arocapi
+doesn't redact Metadata itself. If some requests should see a reduced version, grant them Metadata access and return
+it from your own [`metadata` half](/reference/storage-backend/), for example as a `json` delivery.
 
 ## Content
 
-The Content is the bytes of a file, served by `GET /file/:id` through your `fileHandler`. Only file entities have
+The Content is the bytes of a file, served by `GET /file/:id` through your storage backend's `content` half. Only file entities have
 Content. Asking for the Content of a collection or object is a 404.
 
-A request reaches your handler only if the file's entity is visible and `access.content` is true for it. A file's
+A request reaches your storage backend only if the file's entity is visible and `access.content` is true for it. A file's
 access is always its own file entity's access. Collections and objects also get a `content` flag in their Records,
 but arocapi never enforces it; use it as a hint for clients, such as "this item has files you can't download".
 

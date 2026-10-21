@@ -1,0 +1,38 @@
+{
+  "id": "https://example.com/storage/contract",
+  "type": "https://ocfl.io/1.1/spec/#inventory",
+  "digestAlgorithm": "sha512",
+  "head": "v1",
+  "contentDirectory": "content",
+  "manifest": {
+    "81e1fe467e89870616fb00957a62c03e0f19cfb7acfc92d1672de69539123fdb1508c0c8c116b252135f41993951d69e73e1a6088534f26b220e8f353056f8f4": [
+      "v1/content/collection/ro-crate-metadata.json"
+    ],
+    "cd4adf09f7fd44375dabab1b7bdb367fb8ec979e867b7b2d744660c2f8e7efa1bb834b81320a07ab9546895c6111c42c3c5e9deccaa139f4700f522ed35d9dc4": [
+      "v1/content/collection/item/greeting.wav"
+    ],
+    "b6e0ba7ddaed684cb93cd348ae334adfff4e0acb95de4030b6641cfeb45c112a9c2d60bc9d81c761c49b0ef34b38a61ee6cc252ccf827c29a55e411378acce12": [
+      "v1/content/collection/item/removed.wav"
+    ]
+  },
+  "versions": {
+    "v1": {
+      "created": "2025-01-01T00:00:00.000Z",
+      "message": "Initial",
+      "user": {
+        "name": "arocapi fixtures"
+      },
+      "state": {
+        "81e1fe467e89870616fb00957a62c03e0f19cfb7acfc92d1672de69539123fdb1508c0c8c116b252135f41993951d69e73e1a6088534f26b220e8f353056f8f4": [
+          "collection/ro-crate-metadata.json"
+        ],
+        "cd4adf09f7fd44375dabab1b7bdb367fb8ec979e867b7b2d744660c2f8e7efa1bb834b81320a07ab9546895c6111c42c3c5e9deccaa139f4700f522ed35d9dc4": [
+          "collection/item/greeting.wav"
+        ],
+        "b6e0ba7ddaed684cb93cd348ae334adfff4e0acb95de4030b6641cfeb45c112a9c2d60bc9d81c761c49b0ef34b38a61ee6cc252ccf827c29a55e411378acce12": [
+          "collection/item/removed.wav"
+        ]
+      }
+    }
+  }
+}

@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!.claude/settings.local.json"]
+    "includes": ["**", "!.claude/settings.local.json", "!src/test/fixtures"]
   },
   "formatter": {
     "enabled": true,

@@ -32,8 +32,8 @@ its own.
   query beyond the visibility lookup.
 - The library enforces it. `/entity/:id/metadata` is Denied when
   `access.metadata` is false, `/file/:id` when the file entity's
-  `access.content` is false, for GET and HEAD, before any handler runs.
-  Handlers only deliver bytes.
+  `access.content` is false, for GET and HEAD, before the storage backend is
+  called. Storage backends only deliver bytes.
 - Denied requests get a 401 if anonymous and a 403 otherwise, as HTTP
   defines them. Consumers only state whether a request is authenticated
   (`isAuthenticated`); without it the repository has no logins and every
@@ -53,4 +53,4 @@ its own.
   (e.g. REMS) should be cached per request, as the licence helper does.
 - Serving a redacted RO-Crate to a request without Metadata access is not
   supported; a consumer wanting that grants `access.metadata` and redacts in
-  its handler.
+  its own Metadata half.

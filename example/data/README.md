@@ -279,7 +279,7 @@ Entities are stored in the `Entity` table with:
 - `contentLicenseId`: License for content
 - `meta`: Storage metadata (JSON, optional)
 
-Note: RO-Crate metadata is served via the `/entity/:id/rocrate` endpoint using the configured `roCrateHandler`, not stored in the database.
+Note: RO-Crate metadata is served by the `/entity/:id/metadata` endpoint from the `storage` backend's Metadata half (`DirectoryStorage` reading `meta.storagePath` in `src/index.dev.ts`), not stored in the database.
 
 ### Search fields
 

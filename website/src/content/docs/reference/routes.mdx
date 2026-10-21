@@ -78,9 +78,9 @@ Record is always returned.
 
 ## `GET /entity/:id/metadata`
 
-Response: the RO-Crate metadata from [`roCrateHandler.get`](/configuration/handlers/#rocratehandler), as
-`application/ld+json`, or a 302 for a `redirect` result. `HEAD` answers with the headers from `roCrateHandler.head`.
-No query parameters.
+Response: the RO-Crate metadata from the storage backend's [`metadata`](/configuration/storage/#the-halves) half, as
+`application/ld+json`, or a 302 for a `redirect` delivery. `HEAD` answers with the headers `GET` would send, and a
+302 for a `redirect`. No query parameters.
 
 ## `GET /files`
 
@@ -97,9 +97,9 @@ A file is Visible when its file entity is.
 
 ## `GET /file/:id`
 
-Response: the Content from [`fileHandler.get`](/configuration/handlers/#filehandler), or a 302 for a `redirect`
-result. `HEAD` answers with the headers from `fileHandler.head`. `GET` takes `disposition`, `filename` and `noRedirect`;
-see [query parameters](/configuration/handlers/#query-parameters).
+Response: the Content from the storage backend's [`content`](/configuration/storage/#the-halves) half, or a 302 for
+a `redirect` delivery. `HEAD` answers with the headers `GET` would send, and a 302 for a `redirect`. Both take
+`disposition`, `filename` and `noRedirect`; see [query parameters](/configuration/storage/#query-parameters).
 
 ## `POST /search`
 

@@ -38,7 +38,7 @@ flowchart TB
 
 ## How a request is decided
 
-For a single entity or file, arocapi runs these checks before your handler sees anything. The
+For a single entity or file, arocapi runs these checks before your storage backend sees anything. The
 [request lifecycle](/concepts/request-lifecycle/) shows where your other hooks run.
 
 ```mermaid
@@ -52,7 +52,7 @@ flowchart TD
   visible -- yes --> route{"Route"}
   route -- "/entity/:id" --> record["200 with the Record and its access"]
   route -- "/entity/:id/metadata or /file/:id" --> accessible{"Accessible?"}
-  accessible -- yes --> handler["Your handler: redirect, stream or file"]
+  accessible -- yes --> storage["Your storage backend: redirect, stream, path or JSON"]
   accessible -- no --> deniedAnonymous{"Anonymous?"}
   deniedAnonymous -- yes --> login["401 Unauthorized"]
   deniedAnonymous -- no --> forbidden["403 Forbidden"]
@@ -81,7 +81,7 @@ missing. arocapi answers in a way the client can act on:
   user needs to be granted access. Your access function can return an [authorisation
   URL](/concepts/licences/#authorisation-urls) telling them where to ask for it.
 
-In both cases your handler isn't called, so a Denied request never learns a redirect location or file path.
+In both cases your storage backend isn't called, so a Denied request never learns a redirect location or file path.
 
 ## Route by route
 
@@ -91,8 +91,8 @@ In both cases your handler isn't called, so a Denied request never learns a redi
 | `GET /files`                          | Left out of the results and `total`                          | Listed, with `access.content` true                                                                                      | Listed, with `access.content` false                                   | Listed, with `access.content` false                                   |
 | `POST /search`                        | Left out of the results, `total` and facets                  | Listed, with `access` flags true                                                                                        | Listed, with `access` flags false                                     | Listed, with `access` flags false                                     |
 | `GET /entity/:id`                     | 404, or 401 if Anonymous and `promptLoginForHidden` is on    | 200 with the Record                                                                                                     | 200 with the Record, `access` flags false                             | 200 with the Record, `access` flags false                             |
-| `GET`, `HEAD /entity/:id/metadata`    | 404, or 401 if Anonymous and `promptLoginForHidden` is on    | `roCrateHandler` runs: `GET` gives a 302 redirect or 200 with `application/ld+json`; `HEAD` gives 200 with headers      | 401                                                                   | 403                                                                   |
-| `GET`, `HEAD /file/:id`               | 404, or 401 if Anonymous and `promptLoginForHidden` is on    | `fileHandler` runs: `GET` gives a 302 redirect (200 with `{ "location" }` with `?noRedirect=true`) or 200 with the bytes; `HEAD` gives 200 with headers | 401                                                                   | 403                                                                   |
+| `GET`, `HEAD /entity/:id/metadata`    | 404, or 401 if Anonymous and `promptLoginForHidden` is on    | `storage.metadata` runs: a 302 redirect, or 200 with `application/ld+json` (`HEAD` sends the headers only)              | 401                                                                   | 403                                                                   |
+| `GET`, `HEAD /file/:id`               | 404, or 401 if Anonymous and `promptLoginForHidden` is on    | `storage.content` runs: a 302 redirect (200 with `{ "location" }` with `?noRedirect=true`), or 200 with the bytes (`HEAD` sends the headers only) | 401                                                                   | 403                                                                   |
 
 Some details the table leaves out:
 
@@ -101,7 +101,7 @@ Some details the table leaves out:
 - In listings and search, Denied entities are listed like any other. "Denied" only shows in their `access` flags,
   and in an authorisation URL if your access function supplies one.
 - `GET /entity/:id` never consults access to decide the response. It always returns the Record of a visible entity.
-- If your handler returns `false`, the response is a 404.
+- If your storage backend returns `null`, the response is a 404.
 - A repository without `isAuthenticated` has no Anonymous requests, so every Denied request is a 403.
 - `GET /capabilities` describes the API itself and involves no entities, so neither guard applies.
 
@@ -140,8 +140,8 @@ Here's what each request gets:
 | `GET /files?memberOf=` Ceremony songs           | `total: 1`, song.wav with `content: false` and a `contentAuthorizationUrl`       | Same as anonymous                                            | `total: 1`, song.wav with `content: true`       |
 | `POST /search` for everything                   | `total: 3`: the collection, Ceremony songs and song.wav; facets count those three | Same as anonymous                                            | Same, with `content: true` on Ceremony songs and song.wav |
 | `GET /entity/:id` Ceremony songs                | 200 with the Record                                          | 200 with the Record                                          | 200 with the Record                            |
-| `GET /entity/:id/metadata` Ceremony songs       | Your `roCrateHandler` runs                                   | Your `roCrateHandler` runs                                   | Your `roCrateHandler` runs                     |
-| `GET /file/:id` song.wav                        | 401                                                          | 403                                                          | Your `fileHandler` runs                        |
+| `GET /entity/:id/metadata` Ceremony songs       | Your `storage.metadata` runs                                 | Your `storage.metadata` runs                                 | Your `storage.metadata` runs                   |
+| `GET /file/:id` song.wav                        | 401                                                          | 403                                                          | Your `storage.content` runs                    |
 | `GET /entity/:id` Unreviewed deposit            | 404                                                          | 404                                                          | 404                                            |
 | `GET /entity/:id/metadata` Unreviewed deposit   | 404                                                          | 404                                                          | 404                                            |
 | `GET /file/:id` draft.wav                       | 404                                                          | 404                                                          | 404                                            |
@@ -154,11 +154,11 @@ Following it through:
    the closed licence, so `content` is true for him; for the others it's false, with a link to apply for it.
 2. **The Record.** `GET /entity/:id` for Ceremony songs returns its Record to all three. The Record is guarded only
    by visibility, so a closed licence on the content doesn't stop anyone reading the item's name and description.
-3. **Metadata.** The item's metadata licence is open, so all three reach your `roCrateHandler` and get the full
+3. **Metadata.** The item's metadata licence is open, so all three reach your `storage.metadata` and get the full
    RO-Crate.
 4. **Content.** The closed licence applies here. The anonymous visitor gets a 401: logging in might help, so the
    client can prompt for it. Alice is logged in and still lacks the licence, so she gets a 403 and can follow the
-   authorisation URL from the Record to apply. Bob reaches your `fileHandler`.
+   authorisation URL from the Record to apply. Bob reaches your `storage.content`.
 5. **The hidden draft.** Every route answers 404, exactly as for an id that was never used. Not even its existence
    leaks.
 

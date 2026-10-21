@@ -1,14 +1,14 @@
-import type { FileHandler } from 'arocapi';
+import type { DirectoryStorageMeta } from 'arocapi';
+import type { PrismaClient } from './generated/prisma/client.ts';
 
-const storagePath = (meta: unknown) => {
-  if (typeof meta === 'object' && meta !== null && 'storagePath' in meta && typeof meta.storagePath === 'string') {
-    return meta.storagePath;
-  }
+declare const prisma: PrismaClient;
 
-  throw new Error('File has no storagePath');
-};
-
-export const fileHandler: FileHandler = {
-  get: (file) => ({ type: 'redirect', url: `https://storage.example.com/${storagePath(file.meta)}` }),
-  head: (file) => ({ contentType: file.mediaType, contentLength: Number(file.size) }),
-};
+// Index the item's crate and file with the keys DirectoryStorage reads, relative to its root
+await prisma.entity.update({
+  where: { id: 'https://example.org/item' },
+  data: { meta: { storagePath: 'item/ro-crate-metadata.json' } satisfies DirectoryStorageMeta },
+});
+await prisma.file.update({
+  where: { id: 'https://example.org/item/song.wav' },
+  data: { meta: { storagePath: 'item/song.wav' } satisfies DirectoryStorageMeta },
+});

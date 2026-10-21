@@ -1,6 +1,6 @@
 ---
 title: Request lifecycle
-description: The order in which arocapi runs your filters, access function, handlers and transformers.
+description: The order in which arocapi runs your filters, access function, storage backend and transformers.
 sidebar:
   order: 5
 ---
@@ -9,13 +9,13 @@ import { Code } from '@astrojs/starlight/components';
 import requestLifecycleTransformer from '@examples/concepts/request-lifecycle-transformer.ts?raw';
 
 Every route runs your code in a fixed order. Knowing it tells you what each hook can rely on: an access function never
-sees a Hidden entity, a handler never runs for a Denied request, and a transformer always sees the access result.
+sees a Hidden entity, storage is never called for a Denied request, and a transformer always sees the access result.
 [Visibility vs Access](/concepts/visibility-vs-access/#how-a-request-is-decided) covers the outcomes; this page covers
 where your code runs.
 
 Routes come in two shapes. **Record routes** (`/entities`, `/entity/:id`, `/files` and `/search`) return entities and
 files as JSON and run your transformers. **Metadata and Content routes** (`/entity/:id/metadata` and `/file/:id`,
-`GET` and `HEAD`) enforce access and hand over to your handlers.
+`GET` and `HEAD`) enforce access and hand over to your storage backend.
 
 ```mermaid
 flowchart TB
@@ -33,8 +33,8 @@ flowchart TB
   shape -- metadata or content --> guard[Access function]
   guard --> accessible{Accessible?}
   accessible -- no --> denied[401 if anonymous, else 403]
-  accessible -- yes --> handler[Your handler]
-  handler --> found{Returned a result?}
+  accessible -- yes --> storage[Your storage backend]
+  storage --> found{Returned a delivery?}
   found -- no --> missing[404]
   found -- yes --> bytes[302 redirect, or 200 with the bytes]
 ```
@@ -88,11 +88,12 @@ For `/entity/:id/metadata` and `/file/:id`, arocapi:
    respectively.
 2. If that is `false`, the request is Denied. arocapi asks [`isAuthenticated`](/configuration/access/#isauthenticated)
    and answers `401` for an Anonymous request or `403` otherwise. Without `isAuthenticated`, every Denied request gets
-   `403`. Your handler isn't called.
-3. Otherwise calls [`roCrateHandler` or `fileHandler`](/configuration/handlers/) (`get` or `head`). Your handler can
-   assume the request is allowed.
-4. If the handler returns `false`, answers `404`. Otherwise sends a `302` redirect, or a `200` with the stream, the file
-   or an nginx `X-Accel-Redirect`, as described in [Storage](/strategies/storage/).
+   `403`. Your storage backend isn't called.
+3. Otherwise calls the storage backend's [`metadata` or `content`](/configuration/storage/#the-halves) half, once for
+   `GET` or `HEAD` alike. It can assume the request is allowed.
+4. If the half returns `null`, answers `404`, and if it throws, a logged `500`. Otherwise sends a `302` redirect, or a
+   `200` with the stream, the file or the serialised JSON, as described in
+   [Storage backend](/reference/storage-backend/#deliveries).
 
 These routes don't run transformers: their bodies are your RO-Crate metadata or file bytes, not entity JSON.
 
@@ -104,7 +105,7 @@ These routes don't run transformers: their bodies are your RO-Crate metadata or 
 | `searchVisibilityFilter` | `/search` | the request context | nothing yet |
 | `isAuthenticated` | refusals: Denied, and hidden with `promptLoginForHidden` | the request context | nothing yet |
 | `access` | every route except `/capabilities` | the base entity and the request context | the entity is visible |
-| `roCrateHandler`, `fileHandler` | metadata and file routes | the Entity or File row, including `meta` | the entity is visible and accessible |
+| `storage.metadata`, `storage.content` | metadata and file routes | the Entity row, or the File row and its entity, including `meta` | the entity is visible and accessible |
 | `entityTransformers` | `/entities`, `/entity/:id`, `/search` | the entity with `access` attached | the entity is visible |
 | `fileTransformers` | `/files` | the file with `access` attached | the file's entity is visible |
 

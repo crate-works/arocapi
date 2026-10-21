@@ -1,0 +1,4 @@
+{
+  "extension": "0003-hash-and-id-n-tuple-storage-layout",
+  "description": "OCFL object identifiers are hashed into n-tuple directories holding the percent-encoded identifier."
+}

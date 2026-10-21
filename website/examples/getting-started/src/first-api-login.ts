@@ -1,11 +1,9 @@
 import arocapi, {
   AllVisibleEntityFilter,
   AllVisibleSearchFilter,
-  type FileHandler,
   type IsAuthenticated,
   LicenceAccess,
   type Options,
-  type RoCrateHandler,
 } from 'arocapi';
 import type { FastifyInstance } from 'fastify';
 
@@ -13,8 +11,7 @@ import type { FastifyInstance } from 'fastify';
 declare const fastify: FastifyInstance;
 declare const prisma: Options['prisma'];
 declare const search: Options['search'];
-declare const fileHandler: FileHandler;
-declare const roCrateHandler: RoCrateHandler;
+declare const storage: Options['storage'];
 
 const openLicences = new Set(['https://creativecommons.org/licenses/by/4.0/']);
 
@@ -35,6 +32,5 @@ await fastify.register(arocapi, {
   searchVisibilityFilter: AllVisibleSearchFilter,
   access,
   isAuthenticated,
-  fileHandler,
-  roCrateHandler,
+  storage,
 });

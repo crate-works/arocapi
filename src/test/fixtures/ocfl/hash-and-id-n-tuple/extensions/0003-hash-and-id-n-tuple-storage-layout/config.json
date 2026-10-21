@@ -1,0 +1,6 @@
+{
+  "extensionName": "0003-hash-and-id-n-tuple-storage-layout",
+  "digestAlgorithm": "sha512",
+  "tupleSize": 2,
+  "numberOfTuples": 4
+}

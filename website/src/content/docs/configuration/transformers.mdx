@@ -27,7 +27,7 @@ Every entity and file response flows through the same steps:
 3. **Your transformers**, in order. Each receives the previous one's output and can read `access`.
 
 Transformers don't run for `/entity/:id/metadata` or `/file/:id`, which return bytes from your
-[handlers](/configuration/handlers/). Search results get `searchExtra` (score and highlights) after your transformers.
+[storage backend](/configuration/storage/). Search results get `searchExtra` (score and highlights) after your transformers.
 The [request lifecycle](/concepts/request-lifecycle/#record-routes) shows where these steps sit.
 
 ## `entityTransformers`
@@ -70,7 +70,7 @@ A file's `access` is its file entity's Content access.
 
 ## Request context
 
-Visibility filters, the access function, `isAuthenticated`, transformers and handlers all receive a `RequestContext`:
+Visibility filters, the access function, `isAuthenticated`, transformers and storage backends all receive a `RequestContext`:
 
 | Field     | Type              | Purpose                                                                            |
 | --------- | ----------------- | ---------------------------------------------------------------------------------- |

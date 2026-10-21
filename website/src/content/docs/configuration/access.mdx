@@ -13,7 +13,7 @@ import accessIsAuthenticated from '@examples/configuration/access-is-authenticat
 
 Access decides whether a request may read a Visible entity's Metadata (its RO-Crate metadata document) and Content (a
 file's bytes). arocapi attaches the result to every entity and file it returns, and enforces it on
-`/entity/:id/metadata` and `/file/:id` before calling your handlers. See
+`/entity/:id/metadata` and `/file/:id` before calling your storage backend. See
 [Record, Metadata, Content](/concepts/record-metadata-content/) for the levels and
 [Visibility vs Access](/concepts/visibility-vs-access/) for how a request is decided.
 [Access strategies](/strategies/access/) compares common ways to decide access, and
@@ -41,7 +41,7 @@ Anything else it returns is dropped.
 - `BaseEntity` has the Record fields, with `memberOf` and `rootCollection` as ids. arocapi doesn't look up parents.
 - It runs once per entity in a listing and once per Metadata or Content request. Cache remote lookups per request.
 - A file's access is its file entity's access. On collections and objects, `content` is only a signal to clients.
-- When access is false, `/entity/:id/metadata` and `/file/:id` refuse the request and never call your handler.
+- When access is false, `/entity/:id/metadata` and `/file/:id` refuse the request and never call your storage backend.
 
 For a public repository, use `AllPublicAccess`, which grants everything, with the filters that make every entity
 visible:

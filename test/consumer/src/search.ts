@@ -13,8 +13,8 @@ import {
   type SearchVisibilityWhere,
   type VisibilityCondition,
 } from 'arocapi';
-import { OpenSearchBackend } from 'arocapi/opensearch';
-import { PostgresBackend, type PostgresClient } from 'arocapi/postgres';
+import { OpenSearchBackend } from 'arocapi/search/opensearch';
+import { PostgresBackend, type PostgresClient } from 'arocapi/search/postgres';
 
 declare const client: Client;
 declare const prisma: PostgresClient;
@@ -139,3 +139,8 @@ export const describeCondition = (node: VisibilityCondition): string => {
       return `${node.field} within ${Object.keys(node.bounds).join(', ')}`;
   }
 };
+
+// @ts-expect-error moved to arocapi/search/opensearch
+export type RemovedOpenSearch = typeof import('arocapi/opensearch');
+// @ts-expect-error moved to arocapi/search/postgres
+export type RemovedPostgres = typeof import('arocapi/postgres');

@@ -34,7 +34,7 @@ Read the [full protocols](https://w3id.org/ldac/pilars) for the detail behind ea
 PILARS expects services such as access interfaces and catalogues to be built, and rebuilt, from the data in storage.
 arocapi is one of those services: it serves your data but doesn't own it.
 
-- **Storage stays yours.** arocapi never writes to your storage or requires a layout. You supply handlers that read
+- **Storage stays yours.** arocapi never writes to your storage or requires a layout. A storage backend reads
   RO-Crate metadata and files from wherever they live, whether OCFL, object storage or plain directories. See
   [Storage](/strategies/storage/).
 - **Its index can be rebuilt.** The database and search index arocapi queries are derived from your RO-Crates. You

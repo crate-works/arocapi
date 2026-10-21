@@ -44,6 +44,22 @@ services:
       timeout: 10s
       retries: 3
 
+  test-s3:
+    image: versity/versitygw:v1.9.0
+    environment:
+      VGW_BACKEND: posix
+      VGW_BACKEND_ARG: /tmp
+      VGW_HEALTH: /health
+      ROOT_ACCESS_KEY: test-access-key
+      ROOT_SECRET_KEY: test-secret-key
+    ports:
+      - 7070:7070
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:7070/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
 volumes:
   test-pg-data:
   test-opensearch-data:

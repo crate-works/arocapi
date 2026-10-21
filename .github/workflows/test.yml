@@ -46,6 +46,22 @@ jobs:
           --health-timeout=10s
           --health-retries=3
 
+      s3:
+        image: versity/versitygw:v1.9.0
+        env:
+          VGW_BACKEND: posix
+          VGW_BACKEND_ARG: /tmp
+          VGW_HEALTH: /health
+          ROOT_ACCESS_KEY: test-access-key
+          ROOT_SECRET_KEY: test-secret-key
+        ports:
+          - 7070:7070
+        options: >-
+          --health-cmd="wget -q -O /dev/null http://localhost:7070/health"
+          --health-interval=2s
+          --health-timeout=5s
+          --health-retries=20
+
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -15,13 +15,28 @@ an API response, so it can hold storage locations and internal flags.
 
 | Column        | Passed to                                                             | Typical use                              |
 | ------------- | --------------------------------------------------------------------- | ---------------------------------------- |
-| `Entity.meta` | [`roCrateHandler`](/configuration/handlers/#rocratehandler), and your [`entityVisibilityFilter`](/configuration/visibility/#entityvisibilityfilter) can query it | Where the RO-Crate metadata is stored; visibility flags such as drafts. |
-| `File.meta`   | [`fileHandler`](/configuration/handlers/#filehandler)                 | Where the file's bytes are stored.       |
+| `Entity.meta` | both [storage](/configuration/storage/) halves, and your [`entityVisibilityFilter`](/configuration/visibility/#entityvisibilityfilter) can query it | Where the RO-Crate metadata is stored; visibility flags such as drafts. |
+| `File.meta`   | the storage backend's [`content`](/configuration/storage/#the-halves) half | Where the file's bytes are stored.       |
 
-The file handler receives the `File` row and its own `meta`, not the file entity's. Put what the file handler needs on
-the `File` row. [Storage](/strategies/storage/) shows handlers reading locations from `meta`.
+`meta` is typed as Prisma's `JsonValue`, so narrow it before reading fields.
 
-`meta` is typed as Prisma's `JsonValue`, so narrow it before reading fields:
+## Storage keys
+
+Each reference storage backend reads a default Storage key from `meta`, unless you supply its `locate` option. Write
+these keys when you index:
+
+| Backend                                               | Content                 | Metadata                  | Override                                     |
+| ----------------------------------------------------- | ----------------------- | ------------------------- | -------------------------------------------- |
+| [`DirectoryStorage`](/configuration/storage/#directorystorage) | `File.meta.storagePath` | `Entity.meta.storagePath` | `locate.content(file, entity)`, `locate.metadata(entity)` |
+| [`EntityMetaMetadata`](/configuration/storage/#entitymetametadata) | none (Metadata only) | `Entity.meta.rocrate`, the RO-Crate metadata object itself | `key` |
+| [`S3Storage`](/configuration/storage/#s3storage)       | `File.meta.storageKey`  | `Entity.meta.storageKey`  | `locate.content(file, entity)`, `locate.metadata(entity)` |
+| [`OcflStorage`](/configuration/storage/#ocflstorage) | `File.meta.ocflObject` + `File.meta.ocflPath` | `Entity.meta.ocflObject` + `Entity.meta.ocflPath` (default `ro-crate-metadata.json`) | `locate.content(file, entity)`, `locate.metadata(entity)`, returning `{ object, path }` |
+
+Keys are relative to the backend's root or bucket. An absent key is a 404. A key that isn't a string, `null`
+included, or that is absolute or has a `..` segment, is a 500. `EntityMetaMetadata` reads no key: the value is the
+Metadata, and one that isn't a JSON object is a 500. OCFL keys are an object id, which the storage layout maps and
+isn't checked for `..`, and a logical path inside its head version, not a path on disk. The root exports a TypeScript
+type for each shape, such as `DirectoryStorageMeta`:
 
 <Code code={entityMetaStoragePath} lang="ts" />
 

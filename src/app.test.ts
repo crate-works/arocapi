@@ -17,8 +17,7 @@ describe('Entity Route', () => {
     prisma,
     search: fakeSearchBackend().backend,
     access: AllPublicAccess,
-    fileHandler: { get: vi.fn(), head: vi.fn() },
-    roCrateHandler: { get: vi.fn(), head: vi.fn() },
+    storage: { metadata: vi.fn(), content: vi.fn() },
     entityVisibilityFilter: AllVisibleEntityFilter,
     searchVisibilityFilter: AllVisibleSearchFilter,
   });
@@ -28,8 +27,7 @@ describe('Entity Route', () => {
       ['prisma', 'Prisma client is required'],
       ['search', 'search is required'],
       ['access', 'access is required'],
-      ['fileHandler', 'fileHandler is required'],
-      ['roCrateHandler', 'roCrateHandler is required'],
+      ['storage', 'storage is required'],
       ['entityVisibilityFilter', 'entityVisibilityFilter is required'],
       ['searchVisibilityFilter', 'searchVisibilityFilter is required'],
     ] as const)('should handle missing %s', async (option, message) => {
@@ -40,6 +38,16 @@ describe('Entity Route', () => {
       fastify.register(app, options);
 
       await expect(() => fastify.ready()).rejects.toThrowError(message);
+    });
+
+    it.each(['metadata', 'content'] as const)('should require storage.%s', async (half) => {
+      const fastify = Fastify({ logger: false });
+      const { [half]: _omitted, ...storage } = requiredOptions().storage;
+
+      // @ts-expect-error we are testing a missing half
+      fastify.register(app, { ...requiredOptions(), storage });
+
+      await expect(() => fastify.ready()).rejects.toThrowError(`storage.${half} is required`);
     });
 
     it.each([

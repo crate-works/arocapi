@@ -41,7 +41,7 @@ flowchart LR
   arocapi --> visibility{"Visible?"}
   visibility -- no --> notFound[404]
   visibility -- yes --> access["AllPublicAccess: metadata and content true"]
-  access --> handler[Your handler]
+  access --> storage[Your storage backend]
 ```
 
 arocapi exports `AllPublicAccess` for this. Leave out `isAuthenticated`: without it no request is anonymous, and with
@@ -71,7 +71,7 @@ sequenceDiagram
   Login-->>Client: session or token
   Client->>arocapi: GET /file/{id} with credentials
   arocapi->>arocapi: access is true
-  arocapi-->>Client: 200 from your fileHandler
+  arocapi-->>Client: 200 from your storage backend
 ```
 
 Your app authenticates the request however it already does, for example with a session cookie or a bearer token

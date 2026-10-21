@@ -1,0 +1,76 @@
+---
+title: Storage backend
+description: The StorageBackend contract, for writing your own Metadata or Content half.
+sidebar:
+  order: 6
+---
+
+import { Code } from '@astrojs/starlight/components';
+import signedRedirect from '@examples/reference/storage-backend-signed-redirect.ts?raw';
+
+A storage backend is a plain object satisfying the exported `StorageBackend` type, passed as the
+[`storage`](/configuration/storage/) option. `DirectoryStorage` is one; your own is an object literal, or one half of
+a reference backend with the other half written yourself.
+
+```ts
+type StorageBackend = { metadata: MetadataSource; content: ContentSource };
+
+type MetadataSource = (
+  entity: Entity,
+  context: RequestContext,
+) => MetadataDelivery | null | Promise<MetadataDelivery | null>;
+
+type ContentSource = (
+  file: File,
+  entity: Entity,
+  context: ContentContext,
+) => ContentDelivery | null | Promise<ContentDelivery | null>;
+
+type ContentContext = RequestContext & { contentDisposition: string };
+```
+
+The contract has no lifecycle methods: you own any client and its connections, and pass them in your backend's
+options. A backend that needs more than the entity, such as its parent's `meta`, can take `prisma` that way.
+
+## Calls
+
+arocapi loads the Record, checks visibility and then access ([ADR 0002](https://github.com/crate-works/arocapi/blob/main/docs/adr/0002-library-enforces-access.md)),
+and only then calls the matching half, once per request. `HEAD` and `GET` make the same call, so their headers can't
+disagree.
+
+- `metadata(entity, context)` receives the `Entity` row, including `meta`.
+- `content(file, entity, context)` receives the `File` row and its file entity, both including `meta`, so a location
+  stored at index time needs no database lookup. `context.contentDisposition` is the `Content-Disposition` arocapi
+  computed from `?disposition` and `?filename`.
+
+`context` is the request context, `{ request, fastify }`.
+
+## Deliveries
+
+| `type`     | Fields                                   | Response                                                                                   |
+| ---------- | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `stream`   | `open`, `contentLength`, `etag?`, `lastModified?`, and for Content `contentType` | 200 with the stream `open()` returns. `open` is called only on `GET`, never on `HEAD`. |
+| `path`     | `path`, `contentLength`, `etag?`, `lastModified?`, and for Content `contentType` | 200 with the file at the absolute `path`, which arocapi opens on `GET`.         |
+| `redirect` | `url`                                    | 302 to `url` for `GET` and `HEAD`. `/file/:id?noRedirect=true` answers 200 `{ "location": url }` instead. |
+| `json`     | `value`                                  | Metadata only: 200 with `value` serialised once, and the Content-Length and a strong ETag from those bytes. |
+
+`stream` and `path` deliveries set `Content-Type`, `Content-Length`, `ETag` and `Last-Modified`, and on `/file/:id`
+`Content-Disposition`. Take them from storage, not the database, so a stale `File.size` can't produce a wrong header.
+Metadata is always sent as `application/ld+json`, so its deliveries carry no `contentType`. A `content` half returning
+`json` is a type error.
+
+## Errors
+
+- `null` is a 404 `NOT_FOUND`. Turn your storage's own "missing" errors into `null`.
+- Anything thrown is a 500 `INTERNAL_ERROR`, logged, with nothing from the error in the response.
+
+## Example: a signed redirect
+
+`path` deliveries are sent whole until arocapi supports `Range`. For seekable Content from disk or OCFL today, a
+`content` half can redirect to a content route of your own, which checks a short-lived signed token and serves the
+file with range support. The token stands in for the access check arocapi already made, so scope it to one file and
+keep the expiry short.
+
+<Code code={signedRedirect} lang="ts" />
+
+Mix it with another backend's Metadata half: `{ metadata: DirectoryStorage({ root }).metadata, content }`.

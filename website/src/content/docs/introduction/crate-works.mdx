@@ -22,7 +22,7 @@ flowchart TB
 ```
 
 - **Storage layer.** Your RO-Crates live somewhere durable: an [OCFL](https://ocfl.io) store, object storage or a
-  plain directory tree. arocapi doesn't prescribe one. You write handlers that fetch metadata and files from it, as
+  plain directory tree. arocapi doesn't prescribe one. A storage backend fetches metadata and files from it, as
   described in [Storage](/strategies/storage/).
 - **API layer.** The [RO-Crate API](https://ro-crate-api.crate-works.org) is an implementation-neutral HTTP
   specification for discovering and reading RO-Crate archives, so the same client can talk to any conforming

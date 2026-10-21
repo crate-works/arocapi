@@ -1,16 +1,14 @@
-import { createReadStream } from 'node:fs';
 import { create as contentDisposition } from 'content-disposition';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { PrismaClient } from '../generated/prisma/client.js';
+import type { ContentSource } from '../storage/backend.js';
+import { sendDelivery } from '../storage/deliver.js';
 import type { AccessFunction } from '../types/access.js';
-import type { RequestContext } from '../types/context.js';
-import type { FileHandler, FileMetadata } from '../types/fileHandlers.js';
 import type { EntityVisibilityFilter } from '../types/visibility.js';
 import { createAccessGuard } from '../utils/access.js';
 import { createNotFoundError } from '../utils/errors.js';
-import { setFileHeaders } from '../utils/headers.js';
 import { createNotVisibleResponder, type RefusalOptions } from '../utils/visibility.js';
 
 const paramsSchema = z.object({
@@ -29,29 +27,14 @@ const querySchema = z.object({
 
 type FileRouteOptions = {
   prisma: PrismaClient;
-  fileHandler: FileHandler;
+  content: ContentSource;
   access: AccessFunction;
   entityVisibilityFilter: EntityVisibilityFilter;
   refusal: RefusalOptions;
 };
 
 const file: FastifyPluginAsync<FileRouteOptions> = async (fastify, opts) => {
-  const { prisma, fileHandler, access, entityVisibilityFilter, refusal } = opts;
-
-  // Split the entity off so handlers receive only the File they're typed for
-  const findVisibleFile = async (id: string, context: RequestContext) => {
-    const found = await prisma.file.findFirst({
-      where: { id, entity: await entityVisibilityFilter(context) },
-      include: { entity: { omit: { meta: true } } },
-    });
-    if (!found) {
-      return null;
-    }
-
-    const { entity, ...file } = found;
-
-    return { file, entity };
-  };
+  const { prisma, content, access, entityVisibilityFilter, refusal } = opts;
 
   const denyContent = createAccessGuard({ access, isAuthenticated: refusal.isAuthenticated, level: 'content' });
 
@@ -61,101 +44,42 @@ const file: FastifyPluginAsync<FileRouteOptions> = async (fastify, opts) => {
     exists: async (id) => (await prisma.file.count({ where: { id } })) > 0,
   });
 
-  fastify.withTypeProvider<ZodTypeProvider>().head(
-    '/file/:id',
-    {
-      schema: {
-        params: paramsSchema,
-      },
+  fastify.withTypeProvider<ZodTypeProvider>().route({
+    method: ['GET', 'HEAD'],
+    url: '/file/:id',
+    schema: {
+      params: paramsSchema,
+      querystring: querySchema,
     },
-    async (request, reply) => {
+    handler: async (request, reply) => {
       const { id } = request.params;
 
       const context = { request, fastify };
-      const visible = await findVisibleFile(id, context);
+      const found = await prisma.file.findFirst({
+        where: { id, entity: await entityVisibilityFilter(context) },
+        include: { entity: true },
+      });
 
-      if (!visible) {
+      if (!found) {
         return sendFileNotVisible(reply, id, context);
       }
 
-      const { file, entity } = visible;
+      const { entity, ...file } = found;
       if (await denyContent(reply, entity, context)) {
         return reply;
       }
 
-      const metadata: FileMetadata | false = await fileHandler.head(file, context);
+      const { disposition, filename, noRedirect } = request.query;
+      const disposed = contentDisposition(filename || file.filename, { type: disposition });
+      const delivery = await content(file, entity, { ...context, contentDisposition: disposed });
 
-      if (!metadata) {
-        return reply.code(404).send(createNotFoundError('The requested file metadata was not found', id));
-      }
-
-      setFileHeaders(reply, metadata);
-
-      return reply.code(200).send();
-    },
-  );
-
-  fastify.withTypeProvider<ZodTypeProvider>().get(
-    '/file/:id',
-    {
-      schema: {
-        params: paramsSchema,
-        querystring: querySchema,
-      },
-    },
-    async (request, reply) => {
-      const { id } = request.params;
-
-      const context = { request, fastify };
-      const visible = await findVisibleFile(id, context);
-
-      if (!visible) {
-        return sendFileNotVisible(reply, id, context);
-      }
-
-      const { file, entity } = visible;
-      if (await denyContent(reply, entity, context)) {
-        return reply;
-      }
-
-      const result = await fileHandler.get(file, context);
-
-      if (!result) {
+      if (!delivery) {
         return reply.code(404).send(createNotFoundError('The requested file could not be retrieved', id));
       }
 
-      if (result.type === 'redirect') {
-        if (request.query.noRedirect) {
-          return reply.code(200).send({ location: result.url });
-        }
-
-        return reply.code(302).redirect(result.url);
-      }
-
-      const { disposition, filename: customFilename } = request.query;
-      setFileHeaders(reply, result.metadata);
-      reply.header('Content-Disposition', contentDisposition(customFilename || file.filename, { type: disposition }));
-
-      // Handle stream response
-      if (result.type === 'stream') {
-        return reply.code(200).send(result.stream);
-      }
-
-      if (result.type === 'file') {
-        if (result.accelPath) {
-          reply.header('X-Accel-Redirect', result.accelPath);
-          return reply.code(200).send();
-        }
-
-        const stream = createReadStream(result.path);
-        return reply.code(200).send(stream);
-      }
-
-      // Exhaustiveness check - should never reach here with proper types
-      reply.removeHeader('Content-Disposition');
-      throw new Error(`Unexpected file result type: ${(result as { type: string }).type}`);
+      return sendDelivery(request, reply, delivery, { contentDisposition: disposed, noRedirect });
     },
-  );
+  });
 };
 
 export default file;

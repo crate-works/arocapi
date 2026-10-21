@@ -64,7 +64,8 @@ const processCollection = async (
 ) => {
   console.log(`\nProcessing collection: ${collectionDir}`);
 
-  const collectionPath = join(import.meta.dirname, collectionDir, 'ro-crate-metadata.json');
+  const collectionKey = join(collectionDir, 'ro-crate-metadata.json');
+  const collectionPath = join(import.meta.dirname, collectionKey);
   const collectionCrate = loadRoCrate(collectionPath);
   const collectionRoot = collectionCrate['@graph'].find((node) => node['@id'] === './');
 
@@ -88,7 +89,7 @@ const processCollection = async (
       collectionRoot.license?.['@id'] ||
       'https://creativecommons.org/licenses/by/4.0/',
     meta: {
-      storagePath: collectionPath,
+      storagePath: collectionKey,
     },
   };
 
@@ -108,7 +109,8 @@ const processItem = async (
   itemRocrateId: string,
   collectionRocrateId: string,
 ) => {
-  const itemPath = join(import.meta.dirname, collectionDir, itemDir, 'ro-crate-metadata.json');
+  const itemKey = join(collectionDir, itemDir, 'ro-crate-metadata.json');
+  const itemPath = join(import.meta.dirname, itemKey);
   const itemCrate = loadRoCrate(itemPath);
   const itemRoot = itemCrate['@graph'].find((node) => node['@id'] === './');
 
@@ -128,7 +130,7 @@ const processItem = async (
     contentLicenseId:
       itemRoot.contentLicense?.['@id'] || itemRoot.license?.['@id'] || 'https://creativecommons.org/licenses/by/4.0/',
     meta: {
-      storagePath: itemPath,
+      storagePath: itemKey,
     },
   };
 
@@ -150,7 +152,8 @@ const processItem = async (
       if (fileType === 'http://schema.org/MediaObject' || fileType === 'File') {
         const fileRocrateId = partRef['@id'];
         const filename = fileNode.filename as string;
-        const filePath = join(import.meta.dirname, collectionDir, itemDir, filename);
+        const fileKey = join(collectionDir, itemDir, filename);
+        const filePath = join(import.meta.dirname, fileKey);
 
         // Get file stats from filesystem
         if (!existsSync(filePath)) {
@@ -179,7 +182,7 @@ const processItem = async (
             'https://creativecommons.org/licenses/by/4.0/',
           meta: {
             remapRootTo: fileRocrateId,
-            storagePath: itemPath,
+            storagePath: itemKey,
           },
         };
 
@@ -193,7 +196,7 @@ const processItem = async (
           mediaType: (fileNode.encodingFormat as string) || 'application/octet-stream',
           size: BigInt(stats.size),
           meta: {
-            storagePath: filePath,
+            storagePath: fileKey,
           },
         };
 

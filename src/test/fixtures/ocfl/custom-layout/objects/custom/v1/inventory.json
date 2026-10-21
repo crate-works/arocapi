@@ -1,0 +1,26 @@
+{
+  "id": "https://example.com/storage/custom",
+  "type": "https://ocfl.io/1.1/spec/#inventory",
+  "digestAlgorithm": "sha512",
+  "head": "v1",
+  "contentDirectory": "content",
+  "manifest": {
+    "aee34a0a007f817bc3893f47eaf99c502fafbcb167e5eeae566fc70a2e353e038854f33ebee41edbb7d2114cafdeefd36952bcc868c8139b50f466f39af39e1f": [
+      "v1/content/ro-crate-metadata.json"
+    ]
+  },
+  "versions": {
+    "v1": {
+      "created": "2025-01-01T00:00:00.000Z",
+      "message": "Initial",
+      "user": {
+        "name": "arocapi fixtures"
+      },
+      "state": {
+        "aee34a0a007f817bc3893f47eaf99c502fafbcb167e5eeae566fc70a2e353e038854f33ebee41edbb7d2114cafdeefd36952bcc868c8139b50f466f39af39e1f": [
+          "ro-crate-metadata.json"
+        ]
+      }
+    }
+  }
+}

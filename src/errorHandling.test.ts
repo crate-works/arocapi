@@ -18,8 +18,7 @@ const arocapiOptions = {
   prisma,
   search: fakeSearchBackend().backend,
   access: AllPublicAccess,
-  fileHandler: { get: vi.fn(), head: vi.fn() },
-  roCrateHandler: { get: vi.fn(), head: vi.fn() },
+  storage: { metadata: vi.fn(), content: vi.fn() },
   entityVisibilityFilter: AllVisibleEntityFilter,
   searchVisibilityFilter: AllVisibleSearchFilter,
 };

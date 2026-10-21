@@ -27,7 +27,7 @@ arocapi needs. arocapi uses it for every route: listings, single entities, metad
 `Prisma client is required` without it, and `prisma must be a Prisma 7 client generated from a schema that includes the
 arocapi models` for anything else.
 
-Your handlers and visibility filter work with the same models, including the free-form `meta` column described in
+Your storage backend and visibility filter work with the same models, including the free-form `meta` column described in
 [Entity meta](/reference/entity-meta/).
 
 Search hits are reloaded from the database, so every hit needs a matching `Entity` row.

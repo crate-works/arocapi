@@ -66,3 +66,23 @@ are visible to a request, written over `id` and declared fields in one
 language every search backend applies. Separate from the entity visibility
 filter, a Prisma `where` over the database. _Avoid_: search query, access
 filter.
+
+## How it is stored
+
+**Storage backend**: What delivers an entity's Metadata and a file's Content
+to a request, by streaming the bytes, pointing at a file on disk or
+redirecting elsewhere. It has a Metadata half and a Content half, which may
+come from different places. The library ships local directory, S3 and OCFL
+ones, and a consumer may supply its own. Metadata needn't be stored at all:
+it may be kept in the database or generated on request. _Avoid_: file
+handler, storage adapter, file system.
+
+**Storage key**: Where a stored entity's Metadata or a file's Content sits in
+its storage backend: a path below a root, a key in a bucket, or an OCFL
+object id and logical path. Chosen by the consumer, never derived from the
+entity id. _Avoid_: file path.
+
+**Delivery**: How a storage backend hands one request its bytes: a stream, a
+path on disk the library opens, a redirect, or, for Metadata only, a JSON
+value the library serialises. HEAD and GET get the same delivery. _Avoid_:
+result, response.
