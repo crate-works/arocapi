@@ -38,16 +38,16 @@ pnpm dev               # build and serve src/index.dev.ts on http://localhost:90
 
 `.env` holds the local connection URLs and is committed, so don't put secrets in it.
 
-| Command                       | What it does                                                         |
-| ----------------------------- | -------------------------------------------------------------------- |
-| `pnpm lint`                   | Biome, type checking, the docs examples type check and knip          |
-| `pnpm test`                   | Start the test containers, apply migrations and run every test       |
-| `pnpm test src/app.test.ts`   | Run one test file                                                    |
-| `pnpm test:watch`             | Run the tests in watch mode                                          |
-| `pnpm test:coverage`          | Run the tests with an HTML coverage report                           |
-| `pnpm dbconsole`              | Open a psql console on the development database                      |
-| `pnpm --filter website dev`   | Run the documentation site locally                                   |
-| `pnpm --filter website build` | Build the documentation site, checking its diagrams and every link   |
+| Command                       | What it does                                                       |
+| ----------------------------- | ------------------------------------------------------------------ |
+| `pnpm lint`                   | Biome, type checking, the docs examples type check and knip        |
+| `pnpm test`                   | Start the test containers, apply migrations and run every test     |
+| `pnpm test src/app.test.ts`   | Run one test file                                                  |
+| `pnpm test:watch`             | Run the tests in watch mode                                        |
+| `pnpm test:coverage`          | Run the tests with an HTML coverage report                         |
+| `pnpm dbconsole`              | Open a psql console on the development database                    |
+| `pnpm --filter website dev`   | Run the documentation site locally                                 |
+| `pnpm --filter website build` | Build the documentation site, checking its diagrams and every link |
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/); they decide the next version.
 See [TESTING.md](TESTING.md) for the test setup and [RELEASING.md](RELEASING.md) for releases.

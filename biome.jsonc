@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.6.3/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!.claude/settings.local.json", "!src/test/fixtures"]
+    "includes": ["**", "!.claude/settings.local.json", "!src/test/fixtures", "!pnpm-lock.yaml"]
   },
   "formatter": {
     "enabled": true,
