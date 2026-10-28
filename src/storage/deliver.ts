@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import type { Readable } from 'node:stream';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { setFileHeaders } from '../utils/headers.js';
+import { setDeliveryHeaders } from '../utils/headers.js';
 import type { ContentDelivery, JsonDelivery } from './backend.js';
 
 type SendOptions = {
@@ -34,7 +34,7 @@ export const sendDelivery = async (
   if (delivery.type === 'json' && json) {
     const body = Buffer.from(JSON.stringify(delivery.value));
     const etag = `"${createHash('sha256').update(body).digest('base64url')}"`;
-    setFileHeaders(reply, { contentType: delivery.contentType, contentLength: body.length, etag });
+    setDeliveryHeaders(reply, { contentType: delivery.contentType, contentLength: body.length, etag });
 
     return reply.code(200).send(head ? undefined : body);
   }
@@ -52,7 +52,7 @@ export const sendDelivery = async (
   }
 
   try {
-    setFileHeaders(reply, delivery);
+    setDeliveryHeaders(reply, delivery);
   } catch (error) {
     body?.destroy();
     throw error;

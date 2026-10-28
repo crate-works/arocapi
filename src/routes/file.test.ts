@@ -3,12 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { mockReset } from 'vitest-mock-extended';
 import type { File } from '../generated/prisma/client.js';
 import type { ContentDelivery, ContentSource, MetadataSource } from '../storage/backend.js';
 import { prisma } from '../test/helpers/fastify.js';
 import { getAndHead } from '../test/helpers/getAndHead.js';
+import { mediaOnly, protectiveHeaders, sandboxed, unprotected } from '../test/helpers/protectiveHeaders.js';
 import { entityRow, fileRow } from '../test/helpers/rows.js';
 import { buildStorageApp } from '../test/helpers/storageApp.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
@@ -139,6 +140,110 @@ describe('File Route', () => {
       expect(response.statusCode).toBe(500);
       expect(response.headers['content-disposition']).toBeUndefined();
       expect(stream.destroyed).toBe(true);
+    });
+  });
+
+  describe('protective headers', () => {
+    const withType = (type: 'stream' | 'path', contentType: string): ContentDelivery =>
+      type === 'stream'
+        ? { type, open: () => Readable.from([bytes]), contentType, contentLength: bytes.length }
+        : { type, path: join(dir, 'test.wav'), contentType, contentLength: bytes.length };
+
+    describe.each(['stream', 'path'] as const)('%s delivery', (type) => {
+      it.each([
+        'text/html',
+        'image/svg+xml',
+        'application/pdf',
+        'application/octet-stream',
+        // Browsers take the last type in a list, so these must not pass as media
+        'audio/mpeg, text/html',
+        'audio/mpeg;x=1, text/html',
+        'video/mp4,text/html',
+        ' audio/mpeg',
+        'audio/',
+        'audio/mpeg; x="a", text/html',
+      ])('sandboxes %s on GET and HEAD', async (contentType) => {
+        content.mockImplementation(() => withType(type, contentType));
+
+        const { get, head } = await both();
+
+        for (const response of [get, head]) {
+          expect(response.statusCode).toBe(200);
+          expect(protectiveHeaders(response)).toEqual(sandboxed);
+        }
+      });
+
+      it.each([
+        'audio/wav',
+        'video/mp4',
+        'audio/ogg; codecs=opus',
+        'Video/MP4',
+        'AUDIO/Mpeg;rate=44100',
+        'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
+        'audio/ogg; codecs="opus,vorbis"',
+      ])('sends %s with nosniff and no CSP on GET and HEAD', async (contentType) => {
+        content.mockImplementation(() => withType(type, contentType));
+
+        const { get, head } = await both();
+
+        for (const response of [get, head]) {
+          expect(response.statusCode).toBe(200);
+          expect(protectiveHeaders(response)).toEqual(mediaOnly);
+        }
+      });
+    });
+
+    it.each(['', '?noRedirect=true'])('adds neither to a redirect delivery when the query is %j', async (query) => {
+      content.mockResolvedValue({ type: 'redirect', url: 'https://storage.example.com/test.html' });
+
+      const { get, head } = await both(query);
+
+      for (const response of [get, head]) {
+        expect(protectiveHeaders(response)).toEqual(unprotected);
+      }
+    });
+
+    it('adds neither to a 404 or a 500', async () => {
+      content.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error('Storage is unreachable'));
+
+      const missing = await app.inject({ method: 'GET', url });
+      const failed = await app.inject({ method: 'GET', url });
+
+      expect(missing.statusCode).toBe(404);
+      expect(failed.statusCode).toBe(500);
+      for (const response of [missing, failed]) {
+        expect(protectiveHeaders(response)).toEqual(unprotected);
+      }
+    });
+
+    it('lets a consumer onSend hook replace the CSP', async () => {
+      const custom = await buildStorageApp({ metadata, content }, (instance) => {
+        instance.addHook('onSend', async (_request, reply, payload) => {
+          if (reply.hasHeader('content-security-policy')) {
+            reply.header('Content-Security-Policy', 'sandbox allow-scripts');
+          }
+          return payload;
+        });
+      });
+      content.mockImplementation(() => withType('stream', 'text/html'));
+
+      onTestFinished(() => custom.app.close());
+
+      const response = await custom.app.inject({ method: 'GET', url });
+
+      expect(protectiveHeaders(response)).toEqual({ csp: 'sandbox allow-scripts', nosniff: 'nosniff' });
+    });
+
+    it('adds neither to the 500 when Last-Modified cannot be set', async () => {
+      content.mockReturnValue({
+        ...withType('stream', 'text/html'),
+        lastModified: '2024-01-01' as unknown as Date,
+      } as ContentDelivery);
+
+      const response = await app.inject({ method: 'GET', url });
+
+      expect(response.statusCode).toBe(500);
+      expect(protectiveHeaders(response)).toEqual(unprotected);
     });
   });
 

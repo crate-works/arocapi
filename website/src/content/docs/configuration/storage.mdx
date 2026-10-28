@@ -8,6 +8,7 @@ sidebar:
 import { Code } from '@astrojs/starlight/components';
 import storageDirectory from '@examples/configuration/storage-directory.ts?raw';
 import storageEntityMeta from '@examples/configuration/storage-entity-meta.ts?raw';
+import storageHeaders from '@examples/configuration/storage-headers.ts?raw';
 import storageMixing from '@examples/configuration/storage-mixing.ts?raw';
 import storageOcfl from '@examples/configuration/storage-ocfl.ts?raw';
 import storageS3 from '@examples/configuration/storage-s3.ts?raw';
@@ -116,6 +117,8 @@ Without `locate`, Metadata is read from `Entity.meta.storageKey` and Content fro
   `?disposition` and `?filename` still apply. Presigning makes no request, so a missing object is only found when the
   client follows the URL. The URL bypasses access until it expires, so keep `expiresIn` short; a download only has to
   start within it. A browser on another origin needs CORS on the bucket, or `?noRedirect=true`.
+  arocapi can't add its [protective headers](#protective-headers) to the bucket's response; see [protecting the
+  target](/strategies/storage/#stream-path-or-redirect).
 - **`stream`** proxies the bytes through arocapi, so clients never reach the bucket. Metadata is always served this
   way. arocapi reads Content-Length, ETag and Last-Modified with `HeadObject`, then fetches that same version with
   `GetObject` and `If-Match`; an object replaced in between is a 500 rather than a mix of two versions.
@@ -172,6 +175,39 @@ object id and `path` a logical path in the object's head version.
 
 Content-Length and Last-Modified come from the file on disk, with a strong ETag from its inventory digest.
 Content-Type comes from `File.mediaType`; Metadata is always `application/ld+json`.
+
+## Protective headers
+
+Content and Metadata come from depositors, and arocapi serves them on its own origin. So that a deposited HTML or SVG
+file can't run scripts there, every `stream`, `path` and `json` delivery is sent, on `GET` and `HEAD`, with:
+
+| Header                    | Value                                                    | Sent on                         |
+| ------------------------- | -------------------------------------------------------- | ------------------------------- |
+| `X-Content-Type-Options`  | `nosniff`                                                | every delivery                  |
+| `Content-Security-Policy` | `default-src 'none'; style-src 'unsafe-inline'; sandbox` | all but `audio/*` and `video/*` |
+
+`sandbox` gives the page an opaque origin and blocks its scripts, and `default-src 'none'` stops it loading outside
+images, fonts or stylesheets, and `data:` images and fonts embedded in it too; inline styles still apply. PDFs, images and text still display inline, though Safari
+before 18.4 won't show a PDF under `sandbox`. `nosniff` stops a browser treating a file as a more dangerous type than
+its Content-Type.
+
+Audio and video get no CSP, because Chrome won't play media opened directly under it. A media document can't run
+script, and `nosniff` stops a file labelled as media being sniffed into HTML. The exemption needs a single `audio/*` or
+`video/*` type, in upper or lower case and with any parameters such as `; codecs=opus`, including quoted values with
+commas such as `; codecs="avc1.42E01E, mp4a.40.2"`. A list such as `audio/mpeg, text/html` keeps the CSP, as a browser
+reads the last type in it. `<audio>`, `<video>` and `<img>` elements on other pages ignore the CSP
+and keep working.
+
+Redirect deliveries, and the `noRedirect` answer, carry neither header, since they can't protect the target.
+
+The headers are fixed. A deployment that needs deposited HTML to run can replace or remove them in its own `onSend`
+hook. Add the hook and register arocapi together in one plugin, so the hook sees only arocapi's routes and leaves your
+own pages' headers, such as a CSP from `@fastify/helmet`, alone:
+
+<Code code={storageHeaders} lang="ts" />
+
+[ADR 0005](https://github.com/crate-works/arocapi/blob/main/docs/adr/0005-library-sandboxes-delivered-bytes.md)
+records why.
 
 ## Query parameters
 

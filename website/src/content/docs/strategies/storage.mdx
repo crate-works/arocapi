@@ -107,6 +107,15 @@ When you redirect, plan for:
   so a client that repeats the `HEAD` against `Location` gets `403` from the bucket. To learn the size without the
   body, follow with a `GET` carrying `Range: bytes=0-0` and read the total from `Content-Range`. See
   [#131](https://github.com/crate-works/arocapi/issues/131).
+- **Protecting the target.** arocapi sandboxes the bytes it sends itself
+  ([ADR 0005](https://github.com/crate-works/arocapi/blob/main/docs/adr/0005-library-sandboxes-delivered-bytes.md)),
+  but it can't add headers to a redirect target. Point redirects at an origin that holds no sign-ins, or have the
+  target send `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox` (except for audio and
+  video) and `X-Content-Type-Options: nosniff` itself. That includes a content route of your own, as in the signed
+  redirect example.
+- **`S3Storage` and a CDN.** A presigned URL is already on the bucket's own origin, separate from the API's. If the
+  bucket sits behind a CDN on the API's site, have the CDN add the headers, for example with a CloudFront response
+  headers policy.
 
 Choose `delivery: 'stream'` when clients can't reach the bucket, such as a store on a private network, or when you
 don't want URLs that outlive the access check. Metadata always streams from S3, whichever you choose.

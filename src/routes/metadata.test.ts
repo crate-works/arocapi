@@ -8,6 +8,7 @@ import { mockReset } from 'vitest-mock-extended';
 import type { ContentSource, MetadataDelivery, MetadataSource } from '../storage/backend.js';
 import { prisma } from '../test/helpers/fastify.js';
 import { getAndHead } from '../test/helpers/getAndHead.js';
+import { protectiveHeaders, sandboxed, unprotected } from '../test/helpers/protectiveHeaders.js';
 import { entityRow } from '../test/helpers/rows.js';
 import { buildStorageApp } from '../test/helpers/storageApp.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
@@ -150,6 +151,40 @@ describe('Metadata Route', () => {
       const { get: first, head: second } = await both();
 
       expect(first.headers.etag).not.toBe(second.headers.etag);
+    });
+  });
+
+  describe('protective headers', () => {
+    it.each<[string, () => MetadataDelivery]>([
+      ['json', () => ({ type: 'json', value: { name: 'a' } })],
+      ['stream', () => ({ type: 'stream', open: () => Readable.from([crate]), contentLength: crate.length })],
+    ])('sandboxes a %s delivery on GET and HEAD', async (_, delivery) => {
+      metadata.mockImplementation(delivery);
+
+      const { get, head } = await both();
+
+      for (const response of [get, head]) {
+        expect(response.statusCode).toBe(200);
+        expect(protectiveHeaders(response)).toEqual(sandboxed);
+      }
+    });
+
+    it('adds neither to a redirect delivery, a 404 or a 500', async () => {
+      metadata
+        .mockResolvedValueOnce({ type: 'redirect', url: 'https://storage.example.com/ro-crate-metadata.json' })
+        .mockResolvedValueOnce(null)
+        .mockRejectedValueOnce(new Error('Storage is unreachable'));
+
+      const responses = [
+        await app.inject({ method: 'GET', url }),
+        await app.inject({ method: 'GET', url }),
+        await app.inject({ method: 'GET', url }),
+      ];
+
+      expect(responses.map((response) => response.statusCode)).toEqual([302, 404, 500]);
+      for (const response of responses) {
+        expect(protectiveHeaders(response)).toEqual(unprotected);
+      }
     });
   });
 
