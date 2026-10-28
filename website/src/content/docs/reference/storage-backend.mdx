@@ -59,6 +59,9 @@ disagree.
 Metadata is always sent as `application/ld+json`, so its deliveries carry no `contentType`. A `content` half returning
 `json` is a type error.
 
+arocapi can't add its [protective headers](/configuration/storage/#protective-headers) to a `redirect` target, so the
+target has to protect itself; see [protecting the target](/strategies/storage/#stream-path-or-redirect).
+
 ## Errors
 
 - `null` is a 404 `NOT_FOUND`. Turn your storage's own "missing" errors into `null`.

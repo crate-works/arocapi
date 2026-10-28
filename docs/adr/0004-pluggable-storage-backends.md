@@ -88,6 +88,8 @@ not preclude it.
   so Metadata deliveries carry no `contentType`.
   It sets `Content-Disposition` on `stream` and `path` deliveries; a
   redirecting backend bakes `context.contentDisposition` into its URL.
+- The library also sets protective headers on `stream`, `path` and `json`
+  deliveries; see [ADR 0005](0005-library-sandboxes-delivered-bytes.md).
 - Storage is the source of truth for size, ETag and Last-Modified, so a
   stale `File.size` can't produce a wrong header. `File.mediaType` is the
   source of truth for Content-Type, since stored types are often
