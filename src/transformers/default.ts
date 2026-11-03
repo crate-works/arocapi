@@ -8,8 +8,6 @@ import type { RequestContext } from '../types/context.js';
  */
 export type EntityRow = Entity;
 
-export const toEntityRow = ({ file: _file, ...row }: EntityRow & { file?: unknown }): EntityRow => row;
-
 /**
  * A file's stored database row with its file entity's row
  * Never sent as-is; `meta` can be large
@@ -184,11 +182,7 @@ export const decideAccess = async (
   access: AccessFunction,
   context: RequestContext,
 ): Promise<AccessInfo[]> =>
-  Promise.all(
-    entities.map(async (entity) =>
-      pickAccess(await access(baseEntityTransformer(entity), context, toEntityRow(entity))),
-    ),
-  );
+  Promise.all(entities.map(async (entity) => pickAccess(await access(baseEntityTransformer(entity), context, entity))));
 
 /**
  * Transform database entities to standard entities with the access function's result attached
@@ -231,15 +225,15 @@ export const authoriseFiles = async (
 /**
  * Apply consumer transformers in order, each receiving the previous one's output
  */
-export const applyTransformers = async <T, R extends unknown[]>(
+export const applyTransformers = async <T, R>(
   item: T,
-  transformers: Array<(item: T, context: RequestContext, ...rest: R) => Promise<T> | T>,
+  transformers: Array<(item: T, context: RequestContext, row: R) => Promise<T> | T>,
   context: RequestContext,
-  ...rest: R
+  row: R,
 ): Promise<T> => {
   let result = item;
   for (const transformer of transformers) {
-    result = await transformer(result, context, ...rest);
+    result = await transformer(result, context, row);
   }
 
   return result;

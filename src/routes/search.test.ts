@@ -4,6 +4,7 @@ import type { BackendSearchCapability, SearchRequest, SearchResult } from '../se
 import { SearchQueryError } from '../search/backend.js';
 import { fakeSearchBackend } from '../test/helpers/fakeSearchBackend.js';
 import { fastify, fastifyAfter, fastifyBefore, prisma } from '../test/helpers/fastify.js';
+import { recordRows, restrictedByMeta } from '../test/helpers/rows.js';
 import type { AuthorisedEntity, EntityRow } from '../transformers/default.js';
 import type { AccessFunction } from '../types/access.js';
 import type { EntityTransformer } from '../types/transformers.js';
@@ -376,22 +377,12 @@ describe('Search Route', () => {
 
     it('gives the entity transformers the entity row of each hit without sending it', async () => {
       const rows: EntityRow[] = [];
-      const row = (n: number) => ({ ...entity(n), meta: { accessControl: `Level ${n}` } });
+      const row = (n: number) => ({ ...entity(n), meta: { level: n } });
       await setup({
-        entityTransformers: [
-          (e, _context, entityRow) => {
-            rows.push(entityRow);
-
-            return e;
-          },
-        ],
+        entityTransformers: [recordRows(rows)],
         respond: () => ({ total: 2, hits: [{ id: entity(2).id }, { id: entity(1).id }] }),
       });
-      const loaded = [
-        { ...row(1), file: null },
-        { ...row(2), file: { id: 'http://example.com/file/2' } },
-      ];
-      prisma.entity.findMany.mockResolvedValueOnce(loaded);
+      prisma.entity.findMany.mockResolvedValueOnce([row(1), row(2)]);
 
       const body = (await search({ query: '' })).json<SearchBody>();
 
@@ -404,19 +395,12 @@ describe('Search Route', () => {
 
     it('decides access with the entity row of each hit without sending it', async () => {
       const rows: EntityRow[] = [];
-      const access: AccessFunction = (_entity, _context, row) => {
-        rows.push(row);
-        const open = (row.meta as { accessControl?: string } | null)?.accessControl !== 'Restricted';
-
-        return { metadata: open, content: open };
-      };
       const row = (n: number, accessControl: string) => ({ ...entity(n), meta: { accessControl } });
-      await setup({ access, respond: () => ({ total: 2, hits: [{ id: entity(1).id }, { id: entity(2).id }] }) });
-      const loaded = [
-        { ...row(1, 'Restricted'), file: null },
-        { ...row(2, 'Public'), file: { id: 'http://example.com/file/2' } },
-      ];
-      prisma.entity.findMany.mockResolvedValueOnce(loaded);
+      await setup({
+        access: restrictedByMeta(rows),
+        respond: () => ({ total: 2, hits: [{ id: entity(1).id }, { id: entity(2).id }] }),
+      });
+      prisma.entity.findMany.mockResolvedValueOnce([row(1, 'Restricted'), row(2, 'Public')]);
 
       const body = (await search({ query: '' })).json<SearchBody>();
 

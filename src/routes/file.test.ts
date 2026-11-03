@@ -10,7 +10,7 @@ import type { ContentDelivery, ContentSource, MetadataSource } from '../storage/
 import { prisma } from '../test/helpers/fastify.js';
 import { getAndHead } from '../test/helpers/getAndHead.js';
 import { mediaOnly, protectiveHeaders, sandboxed, unprotected } from '../test/helpers/protectiveHeaders.js';
-import { entityRow, fileRow } from '../test/helpers/rows.js';
+import { entityRow, fileRow, restrictedByMeta } from '../test/helpers/rows.js';
 import { buildStorageApp } from '../test/helpers/storageApp.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
 
@@ -427,11 +427,7 @@ describe('File Route', () => {
   it("decides access with the file entity's row, refusing from what the indexer stored", async () => {
     const restricted = { ...entity, meta: { accessControl: 'Restricted' } };
     prisma.file.findFirst.mockResolvedValue({ ...file, entity: restricted } as File);
-    built.access.mockImplementation((_entity, _context, row) => {
-      const open = (row.meta as { accessControl?: string } | null)?.accessControl !== 'Restricted';
-
-      return { metadata: open, content: open };
-    });
+    built.access.mockImplementation(restrictedByMeta());
 
     const response = await app.inject({ method: 'GET', url });
 

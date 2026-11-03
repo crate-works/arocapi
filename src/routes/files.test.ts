@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AccessFunction, EntityRow, FileRow, FileTransformer } from '../app.js';
 import { fastify, fastifyAfter, fastifyBefore, prisma } from '../test/helpers/fastify.js';
+import { recordRows, restrictedByMeta } from '../test/helpers/rows.js';
 import { AllPublicAccess } from '../utils/access.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
 import { AllVisibleEntityFilter } from '../utils/visibility.js';
@@ -264,16 +265,10 @@ describe('Files Route', () => {
     it("decides access with each file entity's row without sending it", async () => {
       await fastifyBefore();
       const rows: EntityRow[] = [];
-      const access: AccessFunction = (_entity, _context, row) => {
-        rows.push(row);
-        const open = (row.meta as { accessControl?: string } | null)?.accessControl !== 'Restricted';
-
-        return { metadata: open, content: open };
-      };
       await fastify.register(filesRoute, {
         entityVisibilityFilter: AllVisibleEntityFilter,
         prisma,
-        access,
+        access: restrictedByMeta(rows),
       });
       const restricted = { ...mockFile1.entity, meta: { accessControl: 'Restricted' } };
       prisma.file.findMany.mockResolvedValue([{ ...mockFile1, entity: restricted }, mockFile2]);
@@ -300,13 +295,7 @@ describe('Files Route', () => {
         entityVisibilityFilter: AllVisibleEntityFilter,
         prisma,
         access: AllPublicAccess,
-        fileTransformers: [
-          (file, _context, row) => {
-            rows.push(row);
-
-            return file;
-          },
-        ],
+        fileTransformers: [recordRows(rows)],
       });
       const loaded = [
         {

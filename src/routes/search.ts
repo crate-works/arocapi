@@ -17,7 +17,7 @@ import {
   splitFilters,
   type Violation,
 } from '../search/requestFilters.js';
-import { applyTransformers, authoriseEntities, toEntityRow } from '../transformers/default.js';
+import { applyTransformers, authoriseEntities } from '../transformers/default.js';
 import type { AccessFunction, AccessInfo } from '../types/access.js';
 import type { EntityTransformer } from '../types/transformers.js';
 import type { EntityVisibilityFilter, SearchVisibilityFilter } from '../types/visibility.js';
@@ -146,13 +146,10 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
         where: {
           AND: [{ id: { in: result.hits.map(({ id }) => id) } }, await visibilityWhere],
         },
-        include: { file: { select: { id: true } } },
       });
 
       const authorisedEntities = await authoriseEntities(dbEntities, prisma, access, context);
-      const entityMap = new Map(
-        authorisedEntities.map((entity, i) => [entity.id, { entity, row: toEntityRow(dbEntities[i]) }]),
-      );
+      const entityMap = new Map(authorisedEntities.map((entity, i) => [entity.id, { entity, row: dbEntities[i] }]));
 
       const entities = await Promise.all(
         result.hits.map(async ({ id, searchExtra }) => {

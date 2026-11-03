@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { fastify, fastifyAfter, fastifyBefore, prisma } from '../test/helpers/fastify.js';
+import { entityRow, recordRows, restrictedByMeta } from '../test/helpers/rows.js';
 import type { EntityRow } from '../transformers/default.js';
-import type { AccessFunction } from '../types/access.js';
 import { AllPublicAccess } from '../utils/access.js';
 import { AllVisibleEntityFilter } from '../utils/visibility.js';
 import entitiesRoute from './entities.js';
@@ -67,7 +67,6 @@ describe('Entities Route', () => {
       expect(body).toMatchSnapshot();
       expect(prisma.entity.findMany).toHaveBeenCalledWith({
         where: { AND: [{}, {}] },
-        include: { file: { select: { id: true } } },
         orderBy: { id: 'asc' },
         skip: 0,
         take: 100,
@@ -89,7 +88,6 @@ describe('Entities Route', () => {
       expect(response.statusCode).toBe(200);
       expect(prisma.entity.findMany).toHaveBeenCalledWith({
         where: { AND: [{ memberOf: 'http://example.com/collection/1' }, {}] },
-        include: { file: { select: { id: true } } },
         orderBy: { id: 'asc' },
         skip: 0,
         take: 100,
@@ -111,7 +109,6 @@ describe('Entities Route', () => {
       expect(response.statusCode).toBe(200);
       expect(prisma.entity.findMany).toHaveBeenCalledWith({
         where: { AND: [{ entityType: { in: ['http://pcdm.org/models#Collection'] } }, {}] },
-        include: { file: { select: { id: true } } },
         orderBy: { id: 'asc' },
         skip: 0,
         take: 100,
@@ -135,7 +132,6 @@ describe('Entities Route', () => {
         where: {
           AND: [{ entityType: { in: ['http://pcdm.org/models#Collection', 'http://pcdm.org/models#Object'] } }, {}],
         },
-        include: { file: { select: { id: true } } },
         orderBy: { id: 'asc' },
         skip: 0,
         take: 100,
@@ -158,7 +154,6 @@ describe('Entities Route', () => {
       expect(response.statusCode).toBe(200);
       expect(prisma.entity.findMany).toHaveBeenCalledWith({
         where: { AND: [{}, {}] },
-        include: { file: { select: { id: true } } },
         orderBy: { id: 'asc' },
         skip: 10,
         take: 50,
@@ -181,7 +176,6 @@ describe('Entities Route', () => {
       expect(response.statusCode).toBe(200);
       expect(prisma.entity.findMany).toHaveBeenCalledWith({
         where: { AND: [{}, {}] },
-        include: { file: { select: { id: true } } },
         orderBy: { name: 'desc' },
         skip: 0,
         take: 100,
@@ -203,7 +197,6 @@ describe('Entities Route', () => {
       expect(response.statusCode).toBe(200);
       expect(prisma.entity.findMany).toHaveBeenCalledWith({
         where: { AND: [{}, {}] },
-        include: { file: { select: { id: true } } },
         orderBy: { id: 'asc' },
         skip: 0,
         take: 100,
@@ -297,38 +290,16 @@ describe('Entities Route', () => {
         entityVisibilityFilter: AllVisibleEntityFilter,
         prisma,
         access: AllPublicAccess,
-        entityTransformers: [
-          (entity, _context, row) => {
-            rows.push(row);
-
-            return entity;
-          },
-        ],
+        entityTransformers: [recordRows(rows)],
       });
-      const row = (n: number) => ({
-        id: `http://example.com/entity/${n}`,
-        name: `Test Entity ${n}`,
-        description: 'A test entity',
-        entityType: 'http://pcdm.org/models#Object',
-        memberOf: null,
-        rootCollection: null,
-        metadataLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
-        contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
-        meta: { accessControl: `Level ${n}` },
-        createdAt: new Date('2024-01-01'),
-        updatedAt: new Date('2024-02-01'),
-      });
-      const loaded = [
-        { ...row(1), file: null },
-        { ...row(2), file: { id: 'http://example.com/file/2' } },
-      ];
+      const loaded = [1, 2].map((n) => entityRow({ id: `http://example.com/entity/${n}`, meta: { level: n } }));
       prisma.entity.findMany.mockResolvedValue(loaded);
       prisma.entity.count.mockResolvedValue(2);
 
       const response = await fastify.inject({ method: 'GET', url: '/entities' });
 
       expect(response.statusCode).toBe(200);
-      expect(rows).toEqual([row(1), row(2)]);
+      expect(rows).toEqual(loaded);
       for (const entity of response.json().entities) {
         expect(entity).not.toHaveProperty('meta');
         expect(entity).not.toHaveProperty('createdAt');
@@ -337,42 +308,22 @@ describe('Entities Route', () => {
 
     it('decides access with each entity row without sending it', async () => {
       const rows: EntityRow[] = [];
-      const access: AccessFunction = (_entity, _context, row) => {
-        rows.push(row);
-        const open = (row.meta as { accessControl?: string } | null)?.accessControl !== 'Restricted';
-
-        return { metadata: open, content: open };
-      };
       await fastifyBefore();
       await fastify.register(entitiesRoute, {
         entityVisibilityFilter: AllVisibleEntityFilter,
         prisma,
-        access,
+        access: restrictedByMeta(rows),
       });
-      const row = (n: number, accessControl: string) => ({
-        id: `http://example.com/entity/${n}`,
-        name: `Test Entity ${n}`,
-        description: 'A test entity',
-        entityType: 'http://pcdm.org/models#Object',
-        memberOf: null,
-        rootCollection: null,
-        metadataLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
-        contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
-        meta: { accessControl },
-        createdAt: new Date('2024-01-01'),
-        updatedAt: new Date('2024-02-01'),
-      });
-      const loaded = [
-        { ...row(1, 'Restricted'), file: null },
-        { ...row(2, 'Public'), file: { id: 'http://example.com/file/2' } },
-      ];
+      const loaded = ['Restricted', 'Public'].map((accessControl, i) =>
+        entityRow({ id: `http://example.com/entity/${i}`, meta: { accessControl } }),
+      );
       prisma.entity.findMany.mockResolvedValue(loaded);
       prisma.entity.count.mockResolvedValue(2);
 
       const response = await fastify.inject({ method: 'GET', url: '/entities' });
 
       expect(response.statusCode).toBe(200);
-      expect(rows).toEqual([row(1, 'Restricted'), row(2, 'Public')]);
+      expect(rows).toEqual(loaded);
       const { entities } = response.json();
       expect(entities.map((e: { access: unknown }) => e.access)).toEqual([
         { metadata: false, content: false },

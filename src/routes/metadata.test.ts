@@ -9,7 +9,7 @@ import type { ContentSource, MetadataDelivery, MetadataSource } from '../storage
 import { prisma } from '../test/helpers/fastify.js';
 import { getAndHead } from '../test/helpers/getAndHead.js';
 import { protectiveHeaders, sandboxed, unprotected } from '../test/helpers/protectiveHeaders.js';
-import { entityRow } from '../test/helpers/rows.js';
+import { entityRow, restrictedByMeta } from '../test/helpers/rows.js';
 import { buildStorageApp } from '../test/helpers/storageApp.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
 
@@ -281,11 +281,7 @@ describe('Metadata Route', () => {
   it('decides access with the entity row, refusing from what the indexer stored', async () => {
     const restricted = { ...entity, meta: { accessControl: 'Restricted' } };
     prisma.entity.findFirst.mockResolvedValue(restricted);
-    built.access.mockImplementation((_entity, _context, row) => {
-      const open = (row.meta as { accessControl?: string } | null)?.accessControl !== 'Restricted';
-
-      return { metadata: open, content: open };
-    });
+    built.access.mockImplementation(restrictedByMeta());
 
     const response = await app.inject({ method: 'GET', url });
 

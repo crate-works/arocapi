@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { PrismaClient } from '../generated/prisma/client.js';
-import { applyTransformers, authoriseEntities, toEntityRow } from '../transformers/default.js';
+import { applyTransformers, authoriseEntities } from '../transformers/default.js';
 import type { AccessFunction } from '../types/access.js';
 import type { EntityTransformer } from '../types/transformers.js';
 import type { EntityVisibilityFilter } from '../types/visibility.js';
@@ -63,7 +63,6 @@ const entities: FastifyPluginAsync<EntitiesRouteOptions> = async (fastify, opts)
       const [dbEntities, total] = await Promise.all([
         prisma.entity.findMany({
           where: visibleWhere,
-          include: { file: { select: { id: true } } },
           orderBy: {
             [sort]: order,
           },
@@ -75,9 +74,7 @@ const entities: FastifyPluginAsync<EntitiesRouteOptions> = async (fastify, opts)
 
       const authorisedEntities = await authoriseEntities(dbEntities, prisma, access, context);
       const entities = await Promise.all(
-        authorisedEntities.map((entity, i) =>
-          applyTransformers(entity, entityTransformers, context, toEntityRow(dbEntities[i])),
-        ),
+        authorisedEntities.map((entity, i) => applyTransformers(entity, entityTransformers, context, dbEntities[i])),
       );
 
       return {
