@@ -63,6 +63,7 @@ export type {
   AuthorisedEntity,
   AuthorisedFile,
   BaseEntity,
+  EntityRow,
   StandardEntity,
   StandardFile,
 } from './transformers/default.js';

@@ -7,6 +7,8 @@ import arocapi, {
   type ArocapiPrismaClient,
   type ContentSource,
   type DirectoryStorageMeta,
+  type EntityRow,
+  type EntityTransformer,
   type EntityVisibilityFilter,
   type MetadataDelivery,
   type MetadataSource,
@@ -106,6 +108,15 @@ export const metas: Prisma.InputJsonObject[] = [
 ];
 export const location: OcflLocation = { object: 'http://example.org/item', path: 'a.wav' };
 
+// Entity transformers may read the row, and two-parameter ones still fit
+export const fromRow: EntityTransformer = (entity, _context, row: EntityRow) => ({
+  ...entity,
+  accessControl: (row.meta as { accessControl?: string } | null)?.accessControl,
+  dateModified: row.updatedAt.toISOString(),
+});
+export const ignoresRow: EntityTransformer = (entity, { request }) => ({ ...entity, url: request.url });
+export const ownRow: EntityRow = {} as Entity;
+
 export const fastify = Fastify();
 
 fastify.register(arocapi, {
@@ -113,6 +124,7 @@ fastify.register(arocapi, {
   search: OpenSearchBackend({ client: opensearch, fields: { name: { type: 'text' } } }),
   access: AllPublicAccess,
   storage,
+  entityTransformers: [fromRow, ignoresRow],
   entityVisibilityFilter,
   searchVisibilityFilter: AllVisibleSearchFilter,
 });

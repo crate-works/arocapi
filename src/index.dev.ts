@@ -65,10 +65,10 @@ const metadata: MetadataSource = async (entity, context) => {
   return { type: 'json', value: rocrate };
 };
 
-const oniTransformer: EntityTransformer = (entity) => {
+const oniTransformer: EntityTransformer = (entity, _context, row) => {
   return {
     ...entity,
-    accessControl: 'Public',
+    accessControl: metaString<{ accessControl: string }>(row.meta, row.id, 'accessControl') ?? 'Public',
     counts: {
       collections: 0,
       objects: 0,

@@ -32,8 +32,8 @@ The [request lifecycle](/concepts/request-lifecycle/#record-routes) shows where 
 
 ## `entityTransformers`
 
-Each transformer receives an `AuthorisedEntity` (or the previous transformer's output) and the request context, and may
-be async.
+Each transformer receives an `AuthorisedEntity` (or the previous transformer's output), the request context and the
+entity's `row`, and may be async.
 
 | Field               | Type                             |
 | ------------------- | -------------------------------- |
@@ -46,6 +46,15 @@ be async.
 | `metadataLicenseId` | `string`                         |
 | `contentLicenseId`  | `string`                         |
 | `access`            | `AccessInfo`                     |
+
+The third argument, `row` (`EntityRow`), is the entity's stored database row: its Record fields plus `meta`, `createdAt`
+and `updatedAt`. Every transformer gets the same row object, whatever earlier transformers returned, so treat it as
+read-only. Use it to expose values your indexer stored, without querying again.
+
+:::caution
+`meta` can be large (a whole RO-Crate) and may hold data you don't publish. Nothing from `row` reaches the response
+unless your transformer copies it there, so copy only the values you need and never send `meta` as-is.
+:::
 
 <Code code={transformersEntity} lang="ts" />
 

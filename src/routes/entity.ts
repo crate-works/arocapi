@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { PrismaClient } from '../generated/prisma/client.js';
-import { applyTransformers, authoriseEntities } from '../transformers/default.js';
+import { applyTransformers, authoriseEntities, toEntityRow } from '../transformers/default.js';
 import type { AccessFunction } from '../types/access.js';
 import type { EntityTransformer } from '../types/transformers.js';
 import type { EntityVisibilityFilter } from '../types/visibility.js';
@@ -47,7 +47,7 @@ const entity: FastifyPluginAsync<EntityRouteOptions> = async (fastify, opts) => 
 
       const [authorisedEntity] = await authoriseEntities([entity], prisma, access, context);
 
-      return applyTransformers(authorisedEntity, entityTransformers, context);
+      return applyTransformers(authorisedEntity, entityTransformers, context, toEntityRow(entity));
     },
   );
 };

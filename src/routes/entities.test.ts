@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { fastify, fastifyAfter, fastifyBefore, prisma } from '../test/helpers/fastify.js';
+import type { EntityRow } from '../transformers/default.js';
 import { AllPublicAccess } from '../utils/access.js';
 import { AllVisibleEntityFilter } from '../utils/visibility.js';
 import entitiesRoute from './entities.js';
@@ -286,6 +287,51 @@ describe('Entities Route', () => {
 
       expect(response.statusCode).toBe(200);
       expect(body).toMatchSnapshot();
+    });
+
+    it('gives entity transformers each entity row without sending it', async () => {
+      const rows: EntityRow[] = [];
+      await fastifyBefore();
+      await fastify.register(entitiesRoute, {
+        entityVisibilityFilter: AllVisibleEntityFilter,
+        prisma,
+        access: AllPublicAccess,
+        entityTransformers: [
+          (entity, _context, row) => {
+            rows.push(row);
+
+            return entity;
+          },
+        ],
+      });
+      const row = (n: number) => ({
+        id: `http://example.com/entity/${n}`,
+        name: `Test Entity ${n}`,
+        description: 'A test entity',
+        entityType: 'http://pcdm.org/models#Object',
+        memberOf: null,
+        rootCollection: null,
+        metadataLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
+        contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
+        meta: { accessControl: `Level ${n}` },
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-02-01'),
+      });
+      const loaded = [
+        { ...row(1), file: null },
+        { ...row(2), file: { id: 'http://example.com/file/2' } },
+      ];
+      prisma.entity.findMany.mockResolvedValue(loaded);
+      prisma.entity.count.mockResolvedValue(2);
+
+      const response = await fastify.inject({ method: 'GET', url: '/entities' });
+
+      expect(response.statusCode).toBe(200);
+      expect(rows).toEqual([row(1), row(2)]);
+      for (const entity of response.json().entities) {
+        expect(entity).not.toHaveProperty('meta');
+        expect(entity).not.toHaveProperty('createdAt');
+      }
     });
 
     it('should return null for memberOf/rootCollection when parent entity not found', async () => {

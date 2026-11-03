@@ -17,7 +17,7 @@ import {
   splitFilters,
   type Violation,
 } from '../search/requestFilters.js';
-import { applyTransformers, authoriseEntities } from '../transformers/default.js';
+import { applyTransformers, authoriseEntities, toEntityRow } from '../transformers/default.js';
 import type { AccessFunction, AccessInfo } from '../types/access.js';
 import type { EntityTransformer } from '../types/transformers.js';
 import type { EntityVisibilityFilter, SearchVisibilityFilter } from '../types/visibility.js';
@@ -150,19 +150,21 @@ const search: FastifyPluginAsync<SearchRouteOptions> = async (fastify, opts) => 
       });
 
       const authorisedEntities = await authoriseEntities(dbEntities, prisma, access, context);
-      const entityMap = new Map(authorisedEntities.map((entity) => [entity.id, entity]));
+      const entityMap = new Map(
+        authorisedEntities.map((entity, i) => [entity.id, { entity, row: toEntityRow(dbEntities[i]) }]),
+      );
 
       const entities = await Promise.all(
         result.hits.map(async ({ id, searchExtra }) => {
-          const authorisedEntity = entityMap.get(id);
-          if (!authorisedEntity) {
+          const found = entityMap.get(id);
+          if (!found) {
             fastify.log.warn(`Entity ${id} found by the search backend but missing or not visible in database`);
 
             return null;
           }
 
-          const transformed = await applyTransformers(authorisedEntity, entityTransformers, context);
-          const extra = visibleExtra(searchExtra, authorisedEntity.access);
+          const transformed = await applyTransformers(found.entity, entityTransformers, context, found.row);
+          const extra = visibleExtra(searchExtra, found.entity.access);
 
           return extra === undefined ? transformed : { ...(transformed as object), searchExtra: extra };
         }),

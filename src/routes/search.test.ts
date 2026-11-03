@@ -4,7 +4,7 @@ import type { BackendSearchCapability, SearchRequest, SearchResult } from '../se
 import { SearchQueryError } from '../search/backend.js';
 import { fakeSearchBackend } from '../test/helpers/fakeSearchBackend.js';
 import { fastify, fastifyAfter, fastifyBefore, prisma } from '../test/helpers/fastify.js';
-import type { AuthorisedEntity } from '../transformers/default.js';
+import type { AuthorisedEntity, EntityRow } from '../transformers/default.js';
 import type { AccessFunction } from '../types/access.js';
 import type { EntityTransformer } from '../types/transformers.js';
 import type { SearchVisibilityFilter } from '../types/visibility.js';
@@ -372,6 +372,34 @@ describe('Search Route', () => {
       const body = (await search({ query: '' })).json<SearchBody>();
 
       expect(body.entities[0]).toMatchObject({ name: 'ENTITY 1', searchExtra: { score: 1 } });
+    });
+
+    it('gives the entity transformers the entity row of each hit without sending it', async () => {
+      const rows: EntityRow[] = [];
+      const row = (n: number) => ({ ...entity(n), meta: { accessControl: `Level ${n}` } });
+      await setup({
+        entityTransformers: [
+          (e, _context, entityRow) => {
+            rows.push(entityRow);
+
+            return e;
+          },
+        ],
+        respond: () => ({ total: 2, hits: [{ id: entity(2).id }, { id: entity(1).id }] }),
+      });
+      const loaded = [
+        { ...row(1), file: null },
+        { ...row(2), file: { id: 'http://example.com/file/2' } },
+      ];
+      prisma.entity.findMany.mockResolvedValueOnce(loaded);
+
+      const body = (await search({ query: '' })).json<SearchBody>();
+
+      expect(rows).toEqual([row(2), row(1)]);
+      for (const hit of body.entities) {
+        expect(hit).not.toHaveProperty('meta');
+        expect(hit).not.toHaveProperty('createdAt');
+      }
     });
 
     it('includes every declared facet, empty when the backend leaves it out', async () => {

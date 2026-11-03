@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { fastify, fastifyAfter, fastifyBefore, prisma } from '../test/helpers/fastify.js';
+import type { EntityRow } from '../transformers/default.js';
 import { AllPublicAccess } from '../utils/access.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
 import { AllVisibleEntityFilter } from '../utils/visibility.js';
@@ -131,6 +132,48 @@ describe('Entity Route', () => {
 
       expect(response.statusCode).toBe(200);
       expect(body).toMatchSnapshot();
+    });
+
+    it('gives entity transformers the entity row without sending it', async () => {
+      const rows: EntityRow[] = [];
+      await fastifyBefore();
+      await fastify.register(entityRoute, {
+        entityVisibilityFilter: AllVisibleEntityFilter,
+        refusal: { promptLoginForHidden: false },
+        prisma,
+        access: AllPublicAccess,
+        entityTransformers: [
+          (entity, _context, row) => {
+            rows.push(row);
+
+            return entity;
+          },
+        ],
+      });
+      const row = {
+        id: 'http://example.com/entity/123',
+        name: 'Test Entity',
+        description: 'A test entity',
+        entityType: 'http://pcdm.org/models#Object',
+        memberOf: null,
+        rootCollection: null,
+        metadataLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
+        contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
+        meta: { accessControl: 'Restricted' },
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-02-01'),
+      };
+      prisma.entity.findFirst.mockResolvedValue({ ...row, file: null } as typeof row);
+
+      const response = await fastify.inject({
+        method: 'GET',
+        url: `/entity/${encodeURIComponent(row.id)}`,
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(rows).toEqual([row]);
+      expect(response.json()).not.toHaveProperty('meta');
+      expect(response.json()).not.toHaveProperty('createdAt');
     });
 
     it('should return null for memberOf/rootCollection when parent entity not found', async () => {

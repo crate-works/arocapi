@@ -5,6 +5,14 @@ import type { RequestContext } from '../types/context.js';
 export type EntityWithFile = Omit<Entity, 'meta'> & { file?: { id: string } | null };
 
 /**
+ * An entity's stored database row: its Record fields, `meta`, `createdAt` and `updatedAt`
+ * Never sent as-is; `meta` can be large
+ */
+export type EntityRow = Entity;
+
+export const toEntityRow = ({ file: _file, ...row }: EntityRow & { file?: unknown }): EntityRow => row;
+
+/**
  * Entity reference - used for memberOf and rootCollection
  */
 type EntityReference = {
@@ -216,14 +224,15 @@ export const authoriseFiles = async (
 /**
  * Apply consumer transformers in order, each receiving the previous one's output
  */
-export const applyTransformers = async <T>(
+export const applyTransformers = async <T, R extends unknown[]>(
   item: T,
-  transformers: Array<(item: T, context: RequestContext) => Promise<T> | T>,
+  transformers: Array<(item: T, context: RequestContext, ...rest: R) => Promise<T> | T>,
   context: RequestContext,
+  ...rest: R
 ): Promise<T> => {
   let result = item;
   for (const transformer of transformers) {
-    result = await transformer(result, context);
+    result = await transformer(result, context, ...rest);
   }
 
   return result;
