@@ -1,4 +1,4 @@
-import type { AuthorisedEntity, AuthorisedFile, EntityRow } from '../transformers/default.js';
+import type { AuthorisedEntity, AuthorisedFile, EntityRow, FileRow } from '../transformers/default.js';
 import type { RequestContext } from './context.js';
 
 /**
@@ -17,9 +17,10 @@ export type EntityTransformer<TInput = AuthorisedEntity, TOutput = TInput> = (
  * File transformer function
  * Receives AuthorisedFile and transforms it further
  * Transformers are applied as a pipeline, with each transformer receiving
- * the output of the previous one
+ * the output of the previous one, and every transformer receiving the file's row
  */
 export type FileTransformer<TInput = AuthorisedFile, TOutput = TInput> = (
   file: TInput,
   context: RequestContext,
+  row: FileRow,
 ) => Promise<TOutput> | TOutput;

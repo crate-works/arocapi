@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { AccessFunction, EntityRow, FileTransformer } from '../app.js';
+import type { AccessFunction, EntityRow, FileRow, FileTransformer } from '../app.js';
 import { fastify, fastifyAfter, fastifyBefore, prisma } from '../test/helpers/fastify.js';
 import { AllPublicAccess } from '../utils/access.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
@@ -288,6 +288,45 @@ describe('Files Route', () => {
       for (const file of files) {
         expect(file).not.toHaveProperty('meta');
         expect(file).not.toHaveProperty('entity');
+      }
+
+      await fastifyAfter();
+    });
+
+    it('gives file transformers each file row with its entity row without sending it', async () => {
+      await fastifyBefore();
+      const rows: FileRow[] = [];
+      await fastify.register(filesRoute, {
+        entityVisibilityFilter: AllVisibleEntityFilter,
+        prisma,
+        access: AllPublicAccess,
+        fileTransformers: [
+          (file, _context, row) => {
+            rows.push(row);
+
+            return file;
+          },
+        ],
+      });
+      const loaded = [
+        {
+          ...mockFile1,
+          meta: { checksum: 'abc' },
+          entity: { ...mockFile1.entity, meta: { accessControl: 'Restricted' } },
+        },
+        mockFile2,
+      ];
+      prisma.file.findMany.mockResolvedValue(loaded);
+      prisma.file.count.mockResolvedValue(2);
+
+      const response = await fastify.inject({ method: 'GET', url: '/files' });
+
+      expect(response.statusCode).toBe(200);
+      expect(rows).toEqual(loaded);
+      for (const file of response.json<{ files: unknown[] }>().files) {
+        expect(file).not.toHaveProperty('meta');
+        expect(file).not.toHaveProperty('entity');
+        expect(file).not.toHaveProperty('createdAt');
       }
 
       await fastifyAfter();

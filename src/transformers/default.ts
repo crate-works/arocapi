@@ -11,6 +11,12 @@ export type EntityRow = Entity;
 export const toEntityRow = ({ file: _file, ...row }: EntityRow & { file?: unknown }): EntityRow => row;
 
 /**
+ * A file's stored database row with its file entity's row
+ * Never sent as-is; `meta` can be large
+ */
+export type FileRow = File & { entity: EntityRow };
+
+/**
  * Entity reference - used for memberOf and rootCollection
  */
 type EntityReference = {
@@ -205,7 +211,7 @@ export const authoriseEntities = async (
  * Transform database files to standard files with their file entity's Content access attached
  */
 export const authoriseFiles = async (
-  files: Array<File & { entity: EntityRow }>,
+  files: FileRow[],
   access: AccessFunction,
   context: RequestContext,
 ): Promise<AuthorisedFile[]> => {

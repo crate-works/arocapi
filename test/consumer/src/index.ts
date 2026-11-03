@@ -10,6 +10,8 @@ import arocapi, {
   type EntityRow,
   type EntityTransformer,
   type EntityVisibilityFilter,
+  type FileRow,
+  type FileTransformer,
   type MetadataDelivery,
   type MetadataSource,
   type OcflLocation,
@@ -117,6 +119,16 @@ export const fromRow: EntityTransformer = (entity, _context, row: EntityRow) => 
 export const ignoresRow: EntityTransformer = (entity, { request }) => ({ ...entity, url: request.url });
 export const ownRow: EntityRow = {} as Entity;
 
+// File transformers may read the file row and its entity row, and two-parameter ones still fit
+export const fromFileRow: FileTransformer = (file, _context, row: FileRow) => ({
+  ...file,
+  checksum: (row.meta as { checksum?: string } | null)?.checksum,
+  storedSize: row.size.toString(),
+  accessControl: (row.entity.meta as { accessControl?: string } | null)?.accessControl,
+});
+export const ignoresFileRow: FileTransformer = (file, { request }) => ({ ...file, url: request.url });
+export const ownFileRow: FileRow = {} as File & { entity: Entity };
+
 // The access function may decide from the row, and Record-only ones still fit
 export const accessFromRow: AccessFunction = (_entity, _context, row: EntityRow) => {
   const open = (row.meta as { accessControl?: string } | null)?.accessControl === 'Public';
@@ -136,6 +148,7 @@ fastify.register(arocapi, {
   access: accessFromRow,
   storage,
   entityTransformers: [fromRow, ignoresRow],
+  fileTransformers: [fromFileRow, ignoresFileRow],
   entityVisibilityFilter,
   searchVisibilityFilter: AllVisibleSearchFilter,
 });

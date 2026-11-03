@@ -63,7 +63,8 @@ only thing that can.
 
 ## `fileTransformers`
 
-Each transformer receives an `AuthorisedFile` and the request context:
+Each transformer receives an `AuthorisedFile` (or the previous transformer's output), the request context and the
+file's `row`, and may be async.
 
 | Field       | Type                                              |
 | ----------- | ------------------------------------------------- |
@@ -74,6 +75,11 @@ Each transformer receives an `AuthorisedFile` and the request context:
 | `access`    | `{ content: boolean; contentAuthorizationUrl?: string }` |
 
 A file's `access` is its file entity's Content access.
+
+The third argument, `row` (`FileRow`), is the file's stored database row: `filename`, `mediaType`, `size` as stored (a
+`bigint`), `meta`, `createdAt` and `updatedAt`, plus `entity`, its file entity's `EntityRow`. As with entity
+transformers, every transformer gets the same row, and nothing from it reaches the response unless your transformer
+copies it there, so never send either `meta` as-is.
 
 <Code code={transformersFile} lang="ts" />
 
