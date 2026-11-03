@@ -185,7 +185,7 @@ export const decideAccess = async (
   Promise.all(entities.map(async (entity) => pickAccess(await access(baseEntityTransformer(entity), context, entity))));
 
 /**
- * Transform database entities to standard entities with the access function's result attached
+ * Transform database entities to standard entities with the access function's result attached, in input order
  */
 export const authoriseEntities = async (
   entities: EntityRow[],
@@ -202,7 +202,7 @@ export const authoriseEntities = async (
 };
 
 /**
- * Transform database files to standard files with their file entity's Content access attached
+ * Transform database files to standard files with their file entity's Content access attached, in input order
  */
 export const authoriseFiles = async (
   files: FileRow[],
