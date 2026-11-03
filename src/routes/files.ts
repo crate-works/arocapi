@@ -42,7 +42,7 @@ const files: FastifyPluginAsync<FilesRouteOptions> = async (fastify, opts) => {
       const [dbFiles, total] = await Promise.all([
         prisma.file.findMany({
           where,
-          include: { entity: { omit: { meta: true } } },
+          include: { entity: true },
           orderBy: {
             [sort]: order,
           },

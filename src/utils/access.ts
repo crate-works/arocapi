@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { decideAccess, type EntityWithFile } from '../transformers/default.js';
+import { decideAccess, type EntityRow } from '../transformers/default.js';
 import type { AccessFunction } from '../types/access.js';
 import type { IsAuthenticated, RequestContext } from '../types/context.js';
 import { sendRefusal } from './errors.js';
@@ -68,7 +68,7 @@ type AccessGuardOptions = {
  */
 export const createAccessGuard =
   ({ access, isAuthenticated, level }: AccessGuardOptions) =>
-  async (reply: FastifyReply, entity: EntityWithFile, context: RequestContext) => {
+  async (reply: FastifyReply, entity: EntityRow, context: RequestContext) => {
     const [entityAccess] = await decideAccess([entity], access, context);
     if (entityAccess[level]) {
       return false;

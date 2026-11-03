@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { fastify, fastifyAfter, fastifyBefore, prisma } from '../test/helpers/fastify.js';
 import type { EntityRow } from '../transformers/default.js';
+import type { AccessFunction } from '../types/access.js';
 import { AllPublicAccess } from '../utils/access.js';
 import { AllVisibleEntityFilter } from '../utils/visibility.js';
 import entitiesRoute from './entities.js';
@@ -331,6 +332,54 @@ describe('Entities Route', () => {
       for (const entity of response.json().entities) {
         expect(entity).not.toHaveProperty('meta');
         expect(entity).not.toHaveProperty('createdAt');
+      }
+    });
+
+    it('decides access with each entity row without sending it', async () => {
+      const rows: EntityRow[] = [];
+      const access: AccessFunction = (_entity, _context, row) => {
+        rows.push(row);
+        const open = (row.meta as { accessControl?: string } | null)?.accessControl !== 'Restricted';
+
+        return { metadata: open, content: open };
+      };
+      await fastifyBefore();
+      await fastify.register(entitiesRoute, {
+        entityVisibilityFilter: AllVisibleEntityFilter,
+        prisma,
+        access,
+      });
+      const row = (n: number, accessControl: string) => ({
+        id: `http://example.com/entity/${n}`,
+        name: `Test Entity ${n}`,
+        description: 'A test entity',
+        entityType: 'http://pcdm.org/models#Object',
+        memberOf: null,
+        rootCollection: null,
+        metadataLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
+        contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
+        meta: { accessControl },
+        createdAt: new Date('2024-01-01'),
+        updatedAt: new Date('2024-02-01'),
+      });
+      const loaded = [
+        { ...row(1, 'Restricted'), file: null },
+        { ...row(2, 'Public'), file: { id: 'http://example.com/file/2' } },
+      ];
+      prisma.entity.findMany.mockResolvedValue(loaded);
+      prisma.entity.count.mockResolvedValue(2);
+
+      const response = await fastify.inject({ method: 'GET', url: '/entities' });
+
+      expect(response.statusCode).toBe(200);
+      expect(rows).toEqual([row(1, 'Restricted'), row(2, 'Public')]);
+      const { entities } = response.json();
+      expect(entities.map((e: { access: unknown }) => e.access)).toEqual([
+        { metadata: false, content: false },
+        { metadata: true, content: true },
+      ]);
+      for (const entity of entities) {
+        expect(entity).not.toHaveProperty('meta');
       }
     });
 

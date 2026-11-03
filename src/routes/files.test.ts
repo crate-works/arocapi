@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { AccessFunction, FileTransformer } from '../app.js';
+import type { AccessFunction, EntityRow, FileTransformer } from '../app.js';
 import { fastify, fastifyAfter, fastifyBefore, prisma } from '../test/helpers/fastify.js';
 import { AllPublicAccess } from '../utils/access.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
@@ -79,9 +79,7 @@ describe('Files Route', () => {
           content: true,
         },
       });
-      expect(prisma.file.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ include: { entity: { omit: { meta: true } } } }),
-      );
+      expect(prisma.file.findMany).toHaveBeenCalledWith(expect.objectContaining({ include: { entity: true } }));
     });
 
     it('should filter files by memberOf', async () => {
@@ -259,6 +257,38 @@ describe('Files Route', () => {
         customField: 'test-value',
         uppercaseFilename: 'FILE1.WAV',
       });
+
+      await fastifyAfter();
+    });
+
+    it("decides access with each file entity's row without sending it", async () => {
+      await fastifyBefore();
+      const rows: EntityRow[] = [];
+      const access: AccessFunction = (_entity, _context, row) => {
+        rows.push(row);
+        const open = (row.meta as { accessControl?: string } | null)?.accessControl !== 'Restricted';
+
+        return { metadata: open, content: open };
+      };
+      await fastify.register(filesRoute, {
+        entityVisibilityFilter: AllVisibleEntityFilter,
+        prisma,
+        access,
+      });
+      const restricted = { ...mockFile1.entity, meta: { accessControl: 'Restricted' } };
+      prisma.file.findMany.mockResolvedValue([{ ...mockFile1, entity: restricted }, mockFile2]);
+      prisma.file.count.mockResolvedValue(2);
+
+      const response = await fastify.inject({ method: 'GET', url: '/files' });
+
+      expect(response.statusCode).toBe(200);
+      expect(rows).toEqual([restricted, mockFile2.entity]);
+      const { files } = response.json<{ files: Array<{ access: unknown }> }>();
+      expect(files.map((file) => file.access)).toEqual([{ content: false }, { content: true }]);
+      for (const file of files) {
+        expect(file).not.toHaveProperty('meta');
+        expect(file).not.toHaveProperty('entity');
+      }
 
       await fastifyAfter();
     });

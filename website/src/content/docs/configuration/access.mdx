@@ -26,8 +26,8 @@ file's bytes). arocapi attaches the result to every entity and file it returns, 
 
 ## `access`
 
-Called with the entity as a `BaseEntity` and the [request context](/configuration/transformers/#request-context). It
-returns an `AccessInfo`:
+Called with the entity as a `BaseEntity`, the [request context](/configuration/transformers/#request-context) and the
+entity's `row`. It returns an `AccessInfo`:
 
 | Field                      | Type      | Purpose                                                  |
 | -------------------------- | --------- | -------------------------------------------------------- |
@@ -39,8 +39,11 @@ returns an `AccessInfo`:
 Anything else it returns is dropped.
 
 - `BaseEntity` has the Record fields, with `memberOf` and `rootCollection` as ids. arocapi doesn't look up parents.
+- `row` (`EntityRow`) is the entity's stored database row: its Record fields plus `meta`, `createdAt` and `updatedAt`.
+  Use it to decide from a value your indexer stored, such as `row.meta.accessControl`. It is the row the route already
+  loaded, so reading it costs no query. Treat it as read-only: transformers and storage backends get the same object.
 - It runs once per entity in a listing and once per Metadata or Content request. Cache remote lookups per request.
-- A file's access is its file entity's access. On collections and objects, `content` is only a signal to clients.
+- A file's access is its file entity's access, decided with the file entity's row. On collections and objects, `content` is only a signal to clients.
 - When access is false, `/entity/:id/metadata` and `/file/:id` refuse the request and never call your storage backend.
 
 For a public repository, use `AllPublicAccess`, which grants everything, with the filters that make every entity

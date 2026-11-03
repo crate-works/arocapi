@@ -141,7 +141,7 @@ describe('AllPublicAccess', () => {
       contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
     };
 
-    expect(AllPublicAccess(baseEntity, context)).toEqual({ metadata: true, content: true });
+    expect(AllPublicAccess(baseEntity, context, dbEntity(baseEntity.id))).toEqual({ metadata: true, content: true });
   });
 });
 
@@ -179,6 +179,7 @@ describe('authoriseEntities', () => {
     expect(access).toHaveBeenCalledWith(
       expect.objectContaining({ memberOf: 'http://example.com/collection' }),
       context,
+      expect.objectContaining({ memberOf: 'http://example.com/collection' }),
     );
     expect(entity.memberOf).toEqual({
       id: 'http://example.com/collection',

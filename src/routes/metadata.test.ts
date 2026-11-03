@@ -273,8 +273,25 @@ describe('Metadata Route', () => {
     expect(built.access).toHaveBeenCalledWith(
       expect.objectContaining({ id: entity.id, memberOf: entity.memberOf }),
       expect.any(Object),
+      expect.any(Object),
     );
     expect(prisma.entity.findMany).not.toHaveBeenCalled();
+  });
+
+  it('decides access with the entity row, refusing from what the indexer stored', async () => {
+    const restricted = { ...entity, meta: { accessControl: 'Restricted' } };
+    prisma.entity.findFirst.mockResolvedValue(restricted);
+    built.access.mockImplementation((_entity, _context, row) => {
+      const open = (row.meta as { accessControl?: string } | null)?.accessControl !== 'Restricted';
+
+      return { metadata: open, content: open };
+    });
+
+    const response = await app.inject({ method: 'GET', url });
+
+    expect(built.access).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), restricted);
+    expect(response.statusCode).toBe(403);
+    expect(metadata).not.toHaveBeenCalled();
   });
 
   it('validates the id', async () => {

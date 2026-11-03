@@ -402,6 +402,34 @@ describe('Search Route', () => {
       }
     });
 
+    it('decides access with the entity row of each hit without sending it', async () => {
+      const rows: EntityRow[] = [];
+      const access: AccessFunction = (_entity, _context, row) => {
+        rows.push(row);
+        const open = (row.meta as { accessControl?: string } | null)?.accessControl !== 'Restricted';
+
+        return { metadata: open, content: open };
+      };
+      const row = (n: number, accessControl: string) => ({ ...entity(n), meta: { accessControl } });
+      await setup({ access, respond: () => ({ total: 2, hits: [{ id: entity(1).id }, { id: entity(2).id }] }) });
+      const loaded = [
+        { ...row(1, 'Restricted'), file: null },
+        { ...row(2, 'Public'), file: { id: 'http://example.com/file/2' } },
+      ];
+      prisma.entity.findMany.mockResolvedValueOnce(loaded);
+
+      const body = (await search({ query: '' })).json<SearchBody>();
+
+      expect(rows).toEqual([row(1, 'Restricted'), row(2, 'Public')]);
+      expect(body.entities.map((hit) => hit.access)).toEqual([
+        { metadata: false, content: false },
+        { metadata: true, content: true },
+      ]);
+      for (const hit of body.entities) {
+        expect(hit).not.toHaveProperty('meta');
+      }
+    });
+
     it('includes every declared facet, empty when the backend leaves it out', async () => {
       await setup({ respond: () => ({ total: 0, hits: [], facets: { inLanguage: [{ name: 'eng', count: 3 }] } }) });
 

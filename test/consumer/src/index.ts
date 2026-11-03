@@ -2,7 +2,7 @@
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { Client } from '@opensearch-project/opensearch';
 import arocapi, {
-  AllPublicAccess,
+  type AccessFunction,
   AllVisibleSearchFilter,
   type ArocapiPrismaClient,
   type ContentSource,
@@ -117,12 +117,23 @@ export const fromRow: EntityTransformer = (entity, _context, row: EntityRow) => 
 export const ignoresRow: EntityTransformer = (entity, { request }) => ({ ...entity, url: request.url });
 export const ownRow: EntityRow = {} as Entity;
 
+// The access function may decide from the row, and Record-only ones still fit
+export const accessFromRow: AccessFunction = (_entity, _context, row: EntityRow) => {
+  const open = (row.meta as { accessControl?: string } | null)?.accessControl === 'Public';
+
+  return { metadata: open, content: open };
+};
+export const accessFromRecord: AccessFunction = ({ contentLicenseId }) => ({
+  metadata: true,
+  content: contentLicenseId === 'https://creativecommons.org/licenses/by/4.0/',
+});
+
 export const fastify = Fastify();
 
 fastify.register(arocapi, {
   prisma,
   search: OpenSearchBackend({ client: opensearch, fields: { name: { type: 'text' } } }),
-  access: AllPublicAccess,
+  access: accessFromRow,
   storage,
   entityTransformers: [fromRow, ignoresRow],
   entityVisibilityFilter,
