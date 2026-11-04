@@ -2,7 +2,17 @@ import type { Entity, File, PrismaClient } from '../generated/prisma/client.js';
 import type { AccessFunction, AccessInfo } from '../types/access.js';
 import type { RequestContext } from '../types/context.js';
 
-export type EntityWithFile = Omit<Entity, 'meta'> & { file?: { id: string } | null };
+/**
+ * An entity's stored database row: its Record fields, `meta`, `createdAt` and `updatedAt`
+ * Never sent as-is; `meta` can be large
+ */
+export type EntityRow = Entity;
+
+/**
+ * A file's stored database row with its file entity's row
+ * Never sent as-is; `meta` can be large
+ */
+export type FileRow = File & { entity: EntityRow };
 
 /**
  * Entity reference - used for memberOf and rootCollection
@@ -72,9 +82,8 @@ export type AuthorisedFile = StandardFile & {
 /**
  * Base entity transformer - always applied first
  * Transforms raw database entity to base entity shape with unresolved references
- * Accepts Entity with optional file relation included
  */
-export const baseEntityTransformer = (entity: EntityWithFile): BaseEntity => {
+export const baseEntityTransformer = (entity: EntityRow): BaseEntity => {
   const base: BaseEntity = {
     id: entity.id,
     name: entity.name,
@@ -139,7 +148,7 @@ const resolveEntityReferences = async (
 /**
  * Transform database entities to standard entities, resolving their references in one query
  */
-const toStandardEntities = async (entities: EntityWithFile[], prisma: PrismaClient): Promise<StandardEntity[]> => {
+const toStandardEntities = async (entities: EntityRow[], prisma: PrismaClient): Promise<StandardEntity[]> => {
   const refMap = await resolveEntityReferences(entities, prisma);
 
   return entities.map((entity) => {
@@ -169,17 +178,17 @@ const pickAccess = ({
  * Decide access to database entities with the access function
  */
 export const decideAccess = async (
-  entities: EntityWithFile[],
+  entities: EntityRow[],
   access: AccessFunction,
   context: RequestContext,
 ): Promise<AccessInfo[]> =>
-  Promise.all(entities.map(async (entity) => pickAccess(await access(baseEntityTransformer(entity), context))));
+  Promise.all(entities.map(async (entity) => pickAccess(await access(baseEntityTransformer(entity), context, entity))));
 
 /**
- * Transform database entities to standard entities with the access function's result attached
+ * Transform database entities to standard entities with the access function's result attached, in input order
  */
 export const authoriseEntities = async (
-  entities: EntityWithFile[],
+  entities: EntityRow[],
   prisma: PrismaClient,
   access: AccessFunction,
   context: RequestContext,
@@ -193,10 +202,10 @@ export const authoriseEntities = async (
 };
 
 /**
- * Transform database files to standard files with their file entity's Content access attached
+ * Transform database files to standard files with their file entity's Content access attached, in input order
  */
 export const authoriseFiles = async (
-  files: Array<File & { entity: EntityWithFile }>,
+  files: FileRow[],
   access: AccessFunction,
   context: RequestContext,
 ): Promise<AuthorisedFile[]> => {
@@ -216,14 +225,15 @@ export const authoriseFiles = async (
 /**
  * Apply consumer transformers in order, each receiving the previous one's output
  */
-export const applyTransformers = async <T>(
+export const applyTransformers = async <T, R>(
   item: T,
-  transformers: Array<(item: T, context: RequestContext) => Promise<T> | T>,
+  transformers: Array<(item: T, context: RequestContext, row: R) => Promise<T> | T>,
   context: RequestContext,
+  row: R,
 ): Promise<T> => {
   let result = item;
   for (const transformer of transformers) {
-    result = await transformer(result, context);
+    result = await transformer(result, context, row);
   }
 
   return result;

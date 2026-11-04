@@ -4,7 +4,8 @@ import type { BackendSearchCapability, SearchRequest, SearchResult } from '../se
 import { SearchQueryError } from '../search/backend.js';
 import { fakeSearchBackend } from '../test/helpers/fakeSearchBackend.js';
 import { fastify, fastifyAfter, fastifyBefore, prisma } from '../test/helpers/fastify.js';
-import type { AuthorisedEntity } from '../transformers/default.js';
+import { recordRows, restrictedByMeta } from '../test/helpers/rows.js';
+import type { AuthorisedEntity, EntityRow } from '../transformers/default.js';
 import type { AccessFunction } from '../types/access.js';
 import type { EntityTransformer } from '../types/transformers.js';
 import type { SearchVisibilityFilter } from '../types/visibility.js';
@@ -372,6 +373,45 @@ describe('Search Route', () => {
       const body = (await search({ query: '' })).json<SearchBody>();
 
       expect(body.entities[0]).toMatchObject({ name: 'ENTITY 1', searchExtra: { score: 1 } });
+    });
+
+    it('gives the entity transformers the entity row of each hit without sending it', async () => {
+      const rows: EntityRow[] = [];
+      const row = (n: number) => ({ ...entity(n), meta: { level: n } });
+      await setup({
+        entityTransformers: [recordRows(rows)],
+        respond: () => ({ total: 2, hits: [{ id: entity(2).id }, { id: entity(1).id }] }),
+      });
+      prisma.entity.findMany.mockResolvedValueOnce([row(1), row(2)]);
+
+      const body = (await search({ query: '' })).json<SearchBody>();
+
+      expect(rows).toEqual([row(2), row(1)]);
+      for (const hit of body.entities) {
+        expect(hit).not.toHaveProperty('meta');
+        expect(hit).not.toHaveProperty('createdAt');
+      }
+    });
+
+    it('decides access with the entity row of each hit without sending it', async () => {
+      const rows: EntityRow[] = [];
+      const row = (n: number, accessControl: string) => ({ ...entity(n), meta: { accessControl } });
+      await setup({
+        access: restrictedByMeta(rows),
+        respond: () => ({ total: 2, hits: [{ id: entity(1).id }, { id: entity(2).id }] }),
+      });
+      prisma.entity.findMany.mockResolvedValueOnce([row(1, 'Restricted'), row(2, 'Public')]);
+
+      const body = (await search({ query: '' })).json<SearchBody>();
+
+      expect(rows).toEqual([row(1, 'Restricted'), row(2, 'Public')]);
+      expect(body.entities.map((hit) => hit.access)).toEqual([
+        { metadata: false, content: false },
+        { metadata: true, content: true },
+      ]);
+      for (const hit of body.entities) {
+        expect(hit).not.toHaveProperty('meta');
+      }
     });
 
     it('includes every declared facet, empty when the backend leaves it out', async () => {

@@ -63,7 +63,6 @@ const entities: FastifyPluginAsync<EntitiesRouteOptions> = async (fastify, opts)
       const [dbEntities, total] = await Promise.all([
         prisma.entity.findMany({
           where: visibleWhere,
-          include: { file: { select: { id: true } } },
           orderBy: {
             [sort]: order,
           },
@@ -75,7 +74,7 @@ const entities: FastifyPluginAsync<EntitiesRouteOptions> = async (fastify, opts)
 
       const authorisedEntities = await authoriseEntities(dbEntities, prisma, access, context);
       const entities = await Promise.all(
-        authorisedEntities.map((entity) => applyTransformers(entity, entityTransformers, context)),
+        authorisedEntities.map((entity, i) => applyTransformers(entity, entityTransformers, context, dbEntities[i])),
       );
 
       return {

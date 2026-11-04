@@ -10,6 +10,7 @@ import {
   authoriseEntities,
   type BaseEntity,
   baseEntityTransformer,
+  type EntityRow,
   type StandardEntity,
 } from './default.js';
 
@@ -36,6 +37,15 @@ describe('Entity Transformers', () => {
       metadata: true,
       content: true,
     },
+  };
+
+  const mockRow: EntityRow = {
+    ...mockStandardEntity,
+    memberOf: 'http://example.com/collection',
+    rootCollection: 'http://example.com/root',
+    meta: {},
+    createdAt: new Date('2024-01-01'),
+    updatedAt: new Date('2024-01-01'),
   };
 
   describe('baseEntityTransformer', () => {
@@ -83,7 +93,7 @@ describe('Entity Transformers', () => {
         uri: entity.id,
       });
 
-      const result = customTransformer(mockAuthorisedEntity, mockContext);
+      const result = customTransformer(mockAuthorisedEntity, mockContext, mockRow);
 
       expect(result).toEqual({
         id: 'http://example.com/entity/123',
@@ -107,7 +117,7 @@ describe('Entity Transformers', () => {
         };
       };
 
-      const result = await asyncTransformer(mockAuthorisedEntity, mockContext);
+      const result = await asyncTransformer(mockAuthorisedEntity, mockContext, mockRow);
 
       expect(result).toEqual({
         id: 'http://example.com/entity/123',
@@ -135,7 +145,7 @@ describe('Entity Transformers', () => {
         fastify: {} as FastifyInstance,
       };
 
-      const result = await contextAwareTransformer(mockAuthorisedEntity, contextWithUrl);
+      const result = await contextAwareTransformer(mockAuthorisedEntity, contextWithUrl, mockRow);
 
       expect(result).toEqual({
         id: 'http://example.com/entity/123',
@@ -163,8 +173,8 @@ describe('Entity Transformers', () => {
       // Simulate pipeline
       // biome-ignore lint/suspicious/noExplicitAny: fine in tests
       let result: any = mockAuthorisedEntity;
-      result = await addDisplayName(result, mockContext);
-      result = await addUpperCase(result, mockContext);
+      result = await addDisplayName(result, mockContext, mockRow);
+      result = await addUpperCase(result, mockContext, mockRow);
 
       expect(result).toMatchObject({
         id: 'http://example.com/entity/123',
@@ -207,7 +217,7 @@ describe('Entity Transformers', () => {
       ]);
 
       const [authorised] = await authoriseEntities([rawEntity], prisma, access, mockContext);
-      const final = await applyTransformers(authorised, [addMetadata], mockContext);
+      const final = await applyTransformers(authorised, [addMetadata], mockContext, rawEntity);
 
       expect(final).toMatchObject({
         id: 'http://example.com/entity/123',

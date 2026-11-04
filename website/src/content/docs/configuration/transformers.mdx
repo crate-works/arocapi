@@ -32,8 +32,8 @@ The [request lifecycle](/concepts/request-lifecycle/#record-routes) shows where 
 
 ## `entityTransformers`
 
-Each transformer receives an `AuthorisedEntity` (or the previous transformer's output) and the request context, and may
-be async.
+Each transformer receives an `AuthorisedEntity` (or the previous transformer's output), the request context and the
+entity's `row`, and may be async.
 
 | Field               | Type                             |
 | ------------------- | -------------------------------- |
@@ -47,6 +47,15 @@ be async.
 | `contentLicenseId`  | `string`                         |
 | `access`            | `AccessInfo`                     |
 
+The third argument, `row` (`EntityRow`), is the entity's stored database row: its Record fields plus `meta`, `createdAt`
+and `updatedAt`. Every transformer gets the same row object, whatever earlier transformers returned, so treat it as
+read-only. Use it to expose values your indexer stored, without querying again.
+
+:::caution
+`meta` can be large (a whole RO-Crate) and may hold data you don't publish. Nothing from `row` reaches the response
+unless your transformer copies it there, so copy only the values you need and never send `meta` as-is.
+:::
+
 <Code code={transformersEntity} lang="ts" />
 
 The returned object is sent as is. The [Record](/concepts/record-metadata-content/#record) is never redacted by arocapi, so a transformer that removes fields is the
@@ -54,7 +63,8 @@ only thing that can.
 
 ## `fileTransformers`
 
-Each transformer receives an `AuthorisedFile` and the request context:
+Each transformer receives an `AuthorisedFile` (or the previous transformer's output), the request context and the
+file's `row`, and may be async.
 
 | Field       | Type                                              |
 | ----------- | ------------------------------------------------- |
@@ -65,6 +75,11 @@ Each transformer receives an `AuthorisedFile` and the request context:
 | `access`    | `{ content: boolean; contentAuthorizationUrl?: string }` |
 
 A file's `access` is its file entity's Content access.
+
+The third argument, `row` (`FileRow`), is the file's stored database row: `filename`, `mediaType`, `size` as stored (a
+`bigint`), `meta`, `createdAt` and `updatedAt`, plus `entity`, its file entity's `EntityRow`. As with entity
+transformers, every transformer gets the same row, and nothing from it reaches the response unless your transformer
+copies it there, so never send either `meta` as-is.
 
 <Code code={transformersFile} lang="ts" />
 

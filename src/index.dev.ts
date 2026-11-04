@@ -9,6 +9,7 @@ import arocapi, {
   AllVisibleEntityFilter,
   AllVisibleSearchFilter,
   type DirectoryStorageMeta,
+  type EntityRow,
   type EntityTransformer,
   type FieldDeclarations,
   type MetadataSource,
@@ -16,7 +17,7 @@ import arocapi, {
 import { PrismaClient } from './generated/prisma/client.js';
 import { OpenSearchBackend } from './search/opensearch/opensearch.js';
 import { DirectoryStorage } from './storage/directory/directory.js';
-import { metaString, safeKey } from './storage/location.js';
+import { metaString, metaValue, safeKey } from './storage/location.js';
 
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is not set');
@@ -65,10 +66,16 @@ const metadata: MetadataSource = async (entity, context) => {
   return { type: 'json', value: rocrate };
 };
 
-const oniTransformer: EntityTransformer = (entity) => {
+const oniAccessControl = ({ meta }: EntityRow) => {
+  const value = metaValue(meta, 'accessControl');
+
+  return typeof value === 'string' ? value : 'Public';
+};
+
+const oniTransformer: EntityTransformer = (entity, _context, row) => {
   return {
     ...entity,
-    accessControl: 'Public',
+    accessControl: oniAccessControl(row),
     counts: {
       collections: 0,
       objects: 0,

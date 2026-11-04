@@ -10,7 +10,7 @@ import type { ContentDelivery, ContentSource, MetadataSource } from '../storage/
 import { prisma } from '../test/helpers/fastify.js';
 import { getAndHead } from '../test/helpers/getAndHead.js';
 import { mediaOnly, protectiveHeaders, sandboxed, unprotected } from '../test/helpers/protectiveHeaders.js';
-import { entityRow, fileRow } from '../test/helpers/rows.js';
+import { entityRow, fileRow, restrictedByMeta } from '../test/helpers/rows.js';
 import { buildStorageApp } from '../test/helpers/storageApp.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
 
@@ -419,8 +419,21 @@ describe('File Route', () => {
     expect(built.access).toHaveBeenCalledWith(
       expect.objectContaining({ id: entity.id, contentLicenseId: entity.contentLicenseId }),
       expect.any(Object),
+      expect.any(Object),
     );
     expect(prisma.entity.findMany).not.toHaveBeenCalled();
+  });
+
+  it("decides access with the file entity's row, refusing from what the indexer stored", async () => {
+    const restricted = { ...entity, meta: { accessControl: 'Restricted' } };
+    prisma.file.findFirst.mockResolvedValue({ ...file, entity: restricted } as File);
+    built.access.mockImplementation(restrictedByMeta());
+
+    const response = await app.inject({ method: 'GET', url });
+
+    expect(built.access).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), restricted);
+    expect(response.statusCode).toBe(403);
+    expect(content).not.toHaveBeenCalled();
   });
 
   it.each(['GET', 'HEAD'] as const)('answers %s for a file that is not visible with 404', async (method) => {

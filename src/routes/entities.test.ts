@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { fastify, fastifyAfter, fastifyBefore, prisma } from '../test/helpers/fastify.js';
+import { entityRow, recordRows, restrictedByMeta } from '../test/helpers/rows.js';
+import type { EntityRow } from '../transformers/default.js';
 import { AllPublicAccess } from '../utils/access.js';
 import { AllVisibleEntityFilter } from '../utils/visibility.js';
 import entitiesRoute from './entities.js';
@@ -65,7 +67,6 @@ describe('Entities Route', () => {
       expect(body).toMatchSnapshot();
       expect(prisma.entity.findMany).toHaveBeenCalledWith({
         where: { AND: [{}, {}] },
-        include: { file: { select: { id: true } } },
         orderBy: { id: 'asc' },
         skip: 0,
         take: 100,
@@ -87,7 +88,6 @@ describe('Entities Route', () => {
       expect(response.statusCode).toBe(200);
       expect(prisma.entity.findMany).toHaveBeenCalledWith({
         where: { AND: [{ memberOf: 'http://example.com/collection/1' }, {}] },
-        include: { file: { select: { id: true } } },
         orderBy: { id: 'asc' },
         skip: 0,
         take: 100,
@@ -109,7 +109,6 @@ describe('Entities Route', () => {
       expect(response.statusCode).toBe(200);
       expect(prisma.entity.findMany).toHaveBeenCalledWith({
         where: { AND: [{ entityType: { in: ['http://pcdm.org/models#Collection'] } }, {}] },
-        include: { file: { select: { id: true } } },
         orderBy: { id: 'asc' },
         skip: 0,
         take: 100,
@@ -133,7 +132,6 @@ describe('Entities Route', () => {
         where: {
           AND: [{ entityType: { in: ['http://pcdm.org/models#Collection', 'http://pcdm.org/models#Object'] } }, {}],
         },
-        include: { file: { select: { id: true } } },
         orderBy: { id: 'asc' },
         skip: 0,
         take: 100,
@@ -156,7 +154,6 @@ describe('Entities Route', () => {
       expect(response.statusCode).toBe(200);
       expect(prisma.entity.findMany).toHaveBeenCalledWith({
         where: { AND: [{}, {}] },
-        include: { file: { select: { id: true } } },
         orderBy: { id: 'asc' },
         skip: 10,
         take: 50,
@@ -179,7 +176,6 @@ describe('Entities Route', () => {
       expect(response.statusCode).toBe(200);
       expect(prisma.entity.findMany).toHaveBeenCalledWith({
         where: { AND: [{}, {}] },
-        include: { file: { select: { id: true } } },
         orderBy: { name: 'desc' },
         skip: 0,
         take: 100,
@@ -201,7 +197,6 @@ describe('Entities Route', () => {
       expect(response.statusCode).toBe(200);
       expect(prisma.entity.findMany).toHaveBeenCalledWith({
         where: { AND: [{}, {}] },
-        include: { file: { select: { id: true } } },
         orderBy: { id: 'asc' },
         skip: 0,
         take: 100,
@@ -286,6 +281,57 @@ describe('Entities Route', () => {
 
       expect(response.statusCode).toBe(200);
       expect(body).toMatchSnapshot();
+    });
+
+    it('gives entity transformers each entity row without sending it', async () => {
+      const rows: EntityRow[] = [];
+      await fastifyBefore();
+      await fastify.register(entitiesRoute, {
+        entityVisibilityFilter: AllVisibleEntityFilter,
+        prisma,
+        access: AllPublicAccess,
+        entityTransformers: [recordRows(rows)],
+      });
+      const loaded = [1, 2].map((n) => entityRow({ id: `http://example.com/entity/${n}`, meta: { level: n } }));
+      prisma.entity.findMany.mockResolvedValue(loaded);
+      prisma.entity.count.mockResolvedValue(2);
+
+      const response = await fastify.inject({ method: 'GET', url: '/entities' });
+
+      expect(response.statusCode).toBe(200);
+      expect(rows).toEqual(loaded);
+      for (const entity of response.json().entities) {
+        expect(entity).not.toHaveProperty('meta');
+        expect(entity).not.toHaveProperty('createdAt');
+      }
+    });
+
+    it('decides access with each entity row without sending it', async () => {
+      const rows: EntityRow[] = [];
+      await fastifyBefore();
+      await fastify.register(entitiesRoute, {
+        entityVisibilityFilter: AllVisibleEntityFilter,
+        prisma,
+        access: restrictedByMeta(rows),
+      });
+      const loaded = ['Restricted', 'Public'].map((accessControl, i) =>
+        entityRow({ id: `http://example.com/entity/${i}`, meta: { accessControl } }),
+      );
+      prisma.entity.findMany.mockResolvedValue(loaded);
+      prisma.entity.count.mockResolvedValue(2);
+
+      const response = await fastify.inject({ method: 'GET', url: '/entities' });
+
+      expect(response.statusCode).toBe(200);
+      expect(rows).toEqual(loaded);
+      const { entities } = response.json();
+      expect(entities.map((e: { access: unknown }) => e.access)).toEqual([
+        { metadata: false, content: false },
+        { metadata: true, content: true },
+      ]);
+      for (const entity of entities) {
+        expect(entity).not.toHaveProperty('meta');
+      }
     });
 
     it('should return null for memberOf/rootCollection when parent entity not found', async () => {

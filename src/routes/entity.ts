@@ -38,7 +38,6 @@ const entity: FastifyPluginAsync<EntityRouteOptions> = async (fastify, opts) => 
       const visibilityWhere = await entityVisibilityFilter(context);
       const entity = await prisma.entity.findFirst({
         where: { AND: [{ id }, visibilityWhere] },
-        include: { file: { select: { id: true } } },
       });
 
       if (!entity) {
@@ -47,7 +46,7 @@ const entity: FastifyPluginAsync<EntityRouteOptions> = async (fastify, opts) => 
 
       const [authorisedEntity] = await authoriseEntities([entity], prisma, access, context);
 
-      return applyTransformers(authorisedEntity, entityTransformers, context);
+      return applyTransformers(authorisedEntity, entityTransformers, context, entity);
     },
   );
 };

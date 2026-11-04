@@ -2,12 +2,16 @@
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { Client } from '@opensearch-project/opensearch';
 import arocapi, {
-  AllPublicAccess,
+  type AccessFunction,
   AllVisibleSearchFilter,
   type ArocapiPrismaClient,
   type ContentSource,
   type DirectoryStorageMeta,
+  type EntityRow,
+  type EntityTransformer,
   type EntityVisibilityFilter,
+  type FileRow,
+  type FileTransformer,
   type MetadataDelivery,
   type MetadataSource,
   type OcflLocation,
@@ -106,13 +110,45 @@ export const metas: Prisma.InputJsonObject[] = [
 ];
 export const location: OcflLocation = { object: 'http://example.org/item', path: 'a.wav' };
 
+// Entity transformers may read the row, and two-parameter ones still fit
+export const fromRow: EntityTransformer = (entity, _context, row: EntityRow) => ({
+  ...entity,
+  accessControl: (row.meta as { accessControl?: string } | null)?.accessControl,
+  dateModified: row.updatedAt.toISOString(),
+});
+export const ignoresRow: EntityTransformer = (entity, { request }) => ({ ...entity, url: request.url });
+export const ownRow: EntityRow = {} as Entity;
+
+// File transformers may read the file row and its entity row, and two-parameter ones still fit
+export const fromFileRow: FileTransformer = (file, _context, row: FileRow) => ({
+  ...file,
+  checksum: (row.meta as { checksum?: string } | null)?.checksum,
+  storedSize: row.size.toString(),
+  accessControl: (row.entity.meta as { accessControl?: string } | null)?.accessControl,
+});
+export const ignoresFileRow: FileTransformer = (file, { request }) => ({ ...file, url: request.url });
+export const ownFileRow: FileRow = {} as File & { entity: Entity };
+
+// The access function may decide from the row, and Record-only ones still fit
+export const accessFromRow: AccessFunction = (_entity, _context, row: EntityRow) => {
+  const open = (row.meta as { accessControl?: string } | null)?.accessControl === 'Public';
+
+  return { metadata: open, content: open };
+};
+export const accessFromRecord: AccessFunction = ({ contentLicenseId }) => ({
+  metadata: true,
+  content: contentLicenseId === 'https://creativecommons.org/licenses/by/4.0/',
+});
+
 export const fastify = Fastify();
 
 fastify.register(arocapi, {
   prisma,
   search: OpenSearchBackend({ client: opensearch, fields: { name: { type: 'text' } } }),
-  access: AllPublicAccess,
+  access: accessFromRow,
   storage,
+  entityTransformers: [fromRow, ignoresRow],
+  fileTransformers: [fromFileRow, ignoresFileRow],
   entityVisibilityFilter,
   searchVisibilityFilter: AllVisibleSearchFilter,
 });

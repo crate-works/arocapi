@@ -15,6 +15,11 @@ under the entity's metadata licence. _Avoid_: crate, record.
 **Content**: The bytes of a file. Only file entities have Content. Guarded by
 access, under the file entity's content licence. _Avoid_: data, media.
 
+**Row**: The stored database row of an entity or file, as the consumer's
+indexer wrote it. May include `meta`, which can be large and private, so it is
+handed to consumer callbacks but never sent as-is. Distinct from Record, which
+is what a response carries. _Avoid_: stored entity, raw entity.
+
 ## How it is protected
 
 **Visible**: An entity that exists for a given request. Only visible entities

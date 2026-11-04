@@ -141,7 +141,7 @@ describe('AllPublicAccess', () => {
       contentLicenseId: 'https://creativecommons.org/licenses/by/4.0/',
     };
 
-    expect(AllPublicAccess(baseEntity, context)).toEqual({ metadata: true, content: true });
+    expect(AllPublicAccess(baseEntity, context, dbEntity(baseEntity.id))).toEqual({ metadata: true, content: true });
   });
 });
 
@@ -179,6 +179,7 @@ describe('authoriseEntities', () => {
     expect(access).toHaveBeenCalledWith(
       expect.objectContaining({ memberOf: 'http://example.com/collection' }),
       context,
+      expect.objectContaining({ memberOf: 'http://example.com/collection' }),
     );
     expect(entity.memberOf).toEqual({
       id: 'http://example.com/collection',
@@ -260,17 +261,18 @@ describe('authoriseFiles', () => {
 });
 
 describe('applyTransformers', () => {
-  it('should chain transformers in order', async () => {
+  it('should chain transformers in order, passing each the row', async () => {
     const result = await applyTransformers(
       'a',
-      [(item) => `${item}b`, async (item, { request }) => `${item}c${request.url}`],
+      [(item, _context, row) => `${item}b${row}`, async (item, { request }, row) => `${item}c${request.url}${row}`],
       { ...context, request: { url: '/d' } as FastifyRequest },
+      '!',
     );
 
-    expect(result).toBe('abc/d');
+    expect(result).toBe('ab!c/d!');
   });
 
   it('should return the item unchanged without transformers', async () => {
-    expect(await applyTransformers('a', [], context)).toBe('a');
+    expect(await applyTransformers('a', [], context, '!')).toBe('a');
   });
 });

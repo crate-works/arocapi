@@ -28,8 +28,9 @@ user:
 | [Licence checks](#licence-checks-against-an-external-authority) | An identity provider | Does this user hold the entity's licence? | 401 if anonymous, otherwise 403 with an authorisation URL |
 
 The access function receives the entity's Record fields, including `metadataLicenseId`, `contentLicenseId`,
-`memberOf` and `rootCollection` (as ids), and the request context. arocapi doesn't look up parents for it, so an
-entity's own fields have to carry everything the decision needs.
+`memberOf` and `rootCollection` (as ids), the request context, and the entity's stored `row`, `meta` included. arocapi
+doesn't look up parents for it, so an entity's own fields, or what your indexer stored in its row, have to carry
+everything the decision needs.
 
 ## Open repository
 

@@ -9,7 +9,7 @@ import type { ContentSource, MetadataDelivery, MetadataSource } from '../storage
 import { prisma } from '../test/helpers/fastify.js';
 import { getAndHead } from '../test/helpers/getAndHead.js';
 import { protectiveHeaders, sandboxed, unprotected } from '../test/helpers/protectiveHeaders.js';
-import { entityRow } from '../test/helpers/rows.js';
+import { entityRow, restrictedByMeta } from '../test/helpers/rows.js';
 import { buildStorageApp } from '../test/helpers/storageApp.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
 
@@ -273,8 +273,21 @@ describe('Metadata Route', () => {
     expect(built.access).toHaveBeenCalledWith(
       expect.objectContaining({ id: entity.id, memberOf: entity.memberOf }),
       expect.any(Object),
+      expect.any(Object),
     );
     expect(prisma.entity.findMany).not.toHaveBeenCalled();
+  });
+
+  it('decides access with the entity row, refusing from what the indexer stored', async () => {
+    const restricted = { ...entity, meta: { accessControl: 'Restricted' } };
+    prisma.entity.findFirst.mockResolvedValue(restricted);
+    built.access.mockImplementation(restrictedByMeta());
+
+    const response = await app.inject({ method: 'GET', url });
+
+    expect(built.access).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), restricted);
+    expect(response.statusCode).toBe(403);
+    expect(metadata).not.toHaveBeenCalled();
   });
 
   it('validates the id', async () => {

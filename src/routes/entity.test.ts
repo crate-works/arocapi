@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { fastify, fastifyAfter, fastifyBefore, prisma } from '../test/helpers/fastify.js';
+import { entityRow, recordRows, restrictedByMeta } from '../test/helpers/rows.js';
+import type { EntityRow } from '../transformers/default.js';
 import { AllPublicAccess } from '../utils/access.js';
 import type { StandardErrorResponse } from '../utils/errors.js';
 import { AllVisibleEntityFilter } from '../utils/visibility.js';
@@ -50,7 +52,6 @@ describe('Entity Route', () => {
       expect(body).toMatchSnapshot();
       expect(prisma.entity.findFirst).toHaveBeenCalledWith({
         where: { AND: [{ id: 'http://example.com/entity/123' }, {}] },
-        include: { file: { select: { id: true } } },
       });
     });
 
@@ -131,6 +132,47 @@ describe('Entity Route', () => {
 
       expect(response.statusCode).toBe(200);
       expect(body).toMatchSnapshot();
+    });
+
+    it('gives entity transformers the entity row without sending it', async () => {
+      const rows: EntityRow[] = [];
+      await fastifyBefore();
+      await fastify.register(entityRoute, {
+        entityVisibilityFilter: AllVisibleEntityFilter,
+        refusal: { promptLoginForHidden: false },
+        prisma,
+        access: AllPublicAccess,
+        entityTransformers: [recordRows(rows)],
+      });
+      const row = entityRow({ meta: { accessControl: 'Restricted' } });
+      prisma.entity.findFirst.mockResolvedValue(row);
+
+      const response = await fastify.inject({ method: 'GET', url: `/entity/${encodeURIComponent(row.id)}` });
+
+      expect(response.statusCode).toBe(200);
+      expect(rows).toEqual([row]);
+      expect(response.json()).not.toHaveProperty('meta');
+      expect(response.json()).not.toHaveProperty('createdAt');
+    });
+
+    it('decides access with the entity row without sending it', async () => {
+      const rows: EntityRow[] = [];
+      await fastifyBefore();
+      await fastify.register(entityRoute, {
+        entityVisibilityFilter: AllVisibleEntityFilter,
+        refusal: { promptLoginForHidden: false },
+        prisma,
+        access: restrictedByMeta(rows),
+      });
+      const row = entityRow({ meta: { accessControl: 'Restricted' } });
+      prisma.entity.findFirst.mockResolvedValue(row);
+
+      const response = await fastify.inject({ method: 'GET', url: `/entity/${encodeURIComponent(row.id)}` });
+
+      expect(response.statusCode).toBe(200);
+      expect(rows).toEqual([row]);
+      expect(response.json()).toMatchObject({ access: { metadata: false, content: false } });
+      expect(response.json()).not.toHaveProperty('meta');
     });
 
     it('should return null for memberOf/rootCollection when parent entity not found', async () => {

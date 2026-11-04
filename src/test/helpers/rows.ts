@@ -1,4 +1,7 @@
 import type { Entity, File } from '../../generated/prisma/client.js';
+import { metaValue } from '../../storage/location.js';
+import type { AccessFunction } from '../../types/access.js';
+import type { RequestContext } from '../../types/context.js';
 
 /** An Entity row, an Object with no `meta` unless overridden */
 export const entityRow = (overrides: Partial<Entity> = {}): Entity => ({
@@ -27,3 +30,22 @@ export const fileRow = (overrides: Partial<File> = {}): File => ({
   updatedAt: new Date(),
   ...overrides,
 });
+
+/** Denies an entity whose `meta.accessControl` is `Restricted`, recording each row it is given */
+export const restrictedByMeta =
+  (rows: Entity[] = []): AccessFunction =>
+  (_entity, _context, row) => {
+    rows.push(row);
+    const open = metaValue(row.meta, 'accessControl') !== 'Restricted';
+
+    return { metadata: open, content: open };
+  };
+
+/** A transformer that records each row it is given and passes the item through */
+export const recordRows =
+  <Row>(rows: Row[]) =>
+  <T>(item: T, _context: RequestContext, row: Row) => {
+    rows.push(row);
+
+    return item;
+  };

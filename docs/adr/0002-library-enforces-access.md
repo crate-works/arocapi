@@ -26,10 +26,13 @@ its own.
   Metadata is guarded by `access.metadata`, Content by `access.content`.
 - Consumers supply one access function, called with an entity, that returns
   only access: `metadata`, `content` and the optional authorisation URLs. The
-  library attaches the result. A file's access is its file entity's access.
-- The access function receives the entity's Record fields with `memberOf` and
-  `rootCollection` as ids, not resolved to names, so enforcing access costs no
-  query beyond the visibility lookup.
+  library attaches the result.
+- The access function receives the entity's Record fields (a `BaseEntity`,
+  with `memberOf` and `rootCollection` as ids, not resolved to names) and the
+  entity's Row, `meta` included, so it can decide from values the indexer
+  stored. Both come from the row the route already loaded, so enforcing access
+  costs no query beyond the visibility lookup. A file's access is its file
+  entity's access, decided with the file entity's Row.
 - The library enforces it. `/entity/:id/metadata` is Denied when
   `access.metadata` is false, `/file/:id` when the file entity's
   `access.content` is false, for GET and HEAD, before the storage backend is
@@ -49,6 +52,9 @@ its own.
 
 - Clients should check `access.metadata` before fetching Metadata, rather
   than fetching it alongside the entity and handling a Denied response.
+- `/files` loads each file entity's Row, `meta` included, so listings carry
+  every listed entity's `meta` from the database even when access never
+  reads it.
 - Each Metadata or Content request costs one access call. Remote checks
   (e.g. REMS) should be cached per request, as the licence helper does.
 - Serving a redacted RO-Crate to a request without Metadata access is not
