@@ -152,12 +152,12 @@ not preclude it.
   outside the layout. `locate` returns `{ object, path }`, the object id and
   the plain logical path. Only the head version is served; mutable HEAD is
   ignored. Each request opens the object by id (no cache), finds the logical
-  path in head and returns a `stream` delivery whose `open()` reads the first
-  chunk, so unreadable content fails before the headers: length from the
-  stored file's size, a strong
-  ETag from its digest, and Last-Modified from the `created` date of the
-  earliest version in the run, ending at head, in which the path has its
-  current digest. `OBJECT_NOT_FOUND` is `null`; every other `OcflError`,
+  path in head and returns a `stream` delivery: length from the stored
+  file's size, a strong ETag from its digest, and Last-Modified from the
+  file's `modifiedAt`, when the version in which the path took its current
+  content was committed. `open()` is `file.stream()`, which opens the content
+  before it resolves, so missing, unreadable or non-regular content fails
+  before the headers. `OBJECT_NOT_FOUND` is `null`; every other `OcflError`,
   including an id the layout can't map, throws.
 - **`EntityMetaMetadata({ key? })`** is a Metadata half only. It returns the
   value at `Entity.meta[key]` (default `rocrate`) as a `json` delivery.
@@ -171,7 +171,7 @@ not preclude it.
   The root exports the plugin and the contract types (`StorageBackend`, the
   deliveries, the `meta` and OCFL location shapes).
 - `@aws-sdk/client-s3` and `@aws-sdk/s3-request-presigner` (`^3`) and
-  `@ocfl/ocfl-fs` (`^1.0.0-beta.58`) are optional peer
+  `@ocfl/ocfl-fs` (`^1.0.0-beta.59`) are optional peer
   dependencies, imported statically by their subpaths. No direct dependency
   is added.
 - The OCFL backend reads through `@ocfl/ocfl-fs` rather than an in-house
@@ -220,10 +220,9 @@ not preclude it.
   the object, reading and checking its whole inventory, and a request during
   a writer's inventory swap may get a 500. Caching, if needed, goes upstream
   first.
-- `@ocfl/ocfl-fs` gives no way to check that stored content is a regular
-  file without reading it, so HEAD answers 200 for a manifest entry naming a
-  directory, which GET refuses. A stored file that disappears part-way
-  through a response drops the connection.
+- Once content is open, removing its object doesn't interrupt the response.
+  A read that fails part-way through, such as on a failing disk, drops the
+  connection.
 - A storage root whose layout `@ocfl/ocfl-fs` doesn't implement can't be
   served by `OcflStorage`; its consumer writes its own halves.
 - Serving an older OCFL version (an optional `version` on the location), an

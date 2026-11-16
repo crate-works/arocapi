@@ -223,7 +223,7 @@ describe('OcflStorage', () => {
   });
 
   describe('damaged objects', () => {
-    it.each(['changed-inventory', 'unparseable', 'escaping-manifest', 'missing-content'])(
+    it.each(['bad-sidecar', 'changed-inventory', 'unparseable', 'escaping-manifest', 'missing-content'])(
       'answers 500 for %s',
       async (name) => {
         const served = await serving(await OcflStorage({ root: pathDirect }));
@@ -238,38 +238,20 @@ describe('OcflStorage', () => {
       },
     );
 
-    it('serves an inventory whose root sidecar is stale but whose head version copy verifies', async () => {
+    it('refuses a manifest path naming a directory before delivering it, for HEAD as well as GET', async () => {
       const served = await serving(await OcflStorage({ root: pathDirect }));
-
-      const response = await served.content({
-        ocflObject: 'https://example.com/storage/bad-sidecar',
-        ocflPath: 'collection/item/greeting.wav',
-      });
-
-      expect(response.statusCode).toBe(200);
-      expect(response.body).toBe('RIFF greeting bytes');
-    });
-
-    it('answers 500 on GET for a manifest path naming a directory', async () => {
-      const served = await serving(await OcflStorage({ root: pathDirect }));
-
-      const response = await served.content({
-        ocflObject: 'https://example.com/storage/directory-manifest',
-        ocflPath: 'collection/item/greeting.wav',
-      });
-
-      expect(response.statusCode).toBe(500);
-    });
-
-    // @ocfl/ocfl-fs 1.0 gives no way to tell stored content that is a directory from a file without reading it
-    it.fails('refuses a manifest path naming a directory without reading it, as HEAD needs', async () => {
       const storage = await OcflStorage({ root: pathDirect });
       const meta = {
         ocflObject: 'https://example.com/storage/directory-manifest',
         ocflPath: 'collection/item/greeting.wav',
       };
 
-      await expect(storage.content({ ...file, meta }, entity, context)).rejects.toMatchObject({ code: 'EISDIR' });
+      const response = await served.content(meta);
+
+      expect(response.statusCode).toBe(500);
+      await expect(storage.content({ ...file, meta }, entity, context)).rejects.toMatchObject({
+        code: 'INVALID_OBJECT',
+      });
     });
   });
 

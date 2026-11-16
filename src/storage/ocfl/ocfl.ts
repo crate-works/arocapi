@@ -1,6 +1,4 @@
-import { once } from 'node:events';
-import { Readable } from 'node:stream';
-import { type OcflFile, type OcflObject, openStorageRoot } from '@ocfl/ocfl-fs';
+import { openStorageRoot } from '@ocfl/ocfl-fs';
 import type { Entity, File } from '../../generated/prisma/client.js';
 import type { OcflLocation, OcflStorageMeta, StorageBackend, StorageLocate, StreamDelivery } from '../backend.js';
 import { locator, metaString, safeKey } from '../location.js';
@@ -37,28 +35,6 @@ const defaultLocations = {
 /** An object id is mapped by the layout, so only the logical path is a key */
 const safeLocation = ({ path }: OcflLocation, id: string) => safeKey(path, id);
 
-/** A Node stream of `file`, opened and first read so a failure comes before the headers are sent */
-const openFile = async (file: OcflFile) => {
-  const body = Readable.fromWeb(file.stream());
-  await once(body, 'readable');
-
-  return body;
-};
-
-/** When `path` took the content it has in the head version: the earliest version of the run ending at head */
-const changedAt = (object: OcflObject, path: string, digest: string) => {
-  let created = object.head.created;
-  for (let number = object.head.number - 1; number > 0; number--) {
-    const version = object.versions.get(number);
-    if (version?.files.get(path)?.digest !== digest) {
-      break;
-    }
-    created = version.created;
-  }
-
-  return created;
-};
-
 /**
  * Serve Metadata and Content from the head version of objects in an OCFL storage root on local disk
  * Throws an `OcflError` when `root` isn't a storage root, or uses a storage layout @ocfl/ocfl-fs doesn't implement
@@ -74,16 +50,16 @@ export const OcflStorage = async ({ root, locate = {} }: OcflStorageOptions): Pr
 
     const object = await nullIfMissing(storageRoot.open(location.object), MISSING);
     const file = object?.head.files.get(location.path);
-    if (!object || !file) {
+    if (!file) {
       return null;
     }
 
     return {
       type: 'stream',
-      open: () => openFile(file),
+      open: () => file.stream(),
       contentLength: await file.size(),
       etag: `"${file.digest}"`,
-      lastModified: changedAt(object, location.path, file.digest),
+      lastModified: file.modifiedAt,
     };
   };
 
