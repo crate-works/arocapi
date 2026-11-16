@@ -1,10 +1,9 @@
 import { Readable } from 'node:stream';
-import type { ReadableStream } from 'node:stream/web';
-import { OcflError, type OcflObject, openStorageRoot, type StorageRoot } from '@ocfl/ocfl-fs';
+import { type OcflObject, openStorageRoot } from '@ocfl/ocfl-fs';
 import type { Entity, File } from '../../generated/prisma/client.js';
 import type { OcflLocation, OcflStorageMeta, StorageBackend, StorageLocate, StreamDelivery } from '../backend.js';
 import { locator, metaString, safeKey } from '../location.js';
-import { withContentType } from '../results.js';
+import { nullIfMissing, withContentType } from '../results.js';
 
 export type OcflStorageOptions = {
   /** The OCFL storage root, whose ocfl_layout.json names a storage layout @ocfl/ocfl-fs implements */
@@ -14,6 +13,8 @@ export type OcflStorageOptions = {
 };
 
 const METADATA_PATH = 'ro-crate-metadata.json';
+
+const MISSING: ReadonlySet<string> = new Set(['OBJECT_NOT_FOUND']);
 
 const metaKey = (row: Entity | File, key: keyof OcflStorageMeta) => metaString<OcflStorageMeta>(row.meta, row.id, key);
 
@@ -34,18 +35,6 @@ const defaultLocations = {
 
 /** An object id is mapped by the layout, so only the logical path is a key */
 const safeLocation = ({ path }: OcflLocation, id: string) => safeKey(path, id);
-
-const openObject = async (root: StorageRoot, id: string) => {
-  try {
-    return await root.open(id);
-  } catch (error) {
-    if (error instanceof OcflError && error.code === 'OBJECT_NOT_FOUND') {
-      return null;
-    }
-
-    throw error;
-  }
-};
 
 /** When `path` took the content it has in the head version: the earliest version of the run ending at head */
 const changedAt = (object: OcflObject, path: string, digest: string) => {
@@ -74,7 +63,7 @@ export const OcflStorage = async ({ root: path, locate = {} }: OcflStorageOption
       return null;
     }
 
-    const object = await openObject(root, location.object);
+    const object = await nullIfMissing(root.open(location.object), MISSING);
     const file = object?.head.files.get(location.path);
     if (!object || !file) {
       return null;
@@ -82,8 +71,7 @@ export const OcflStorage = async ({ root: path, locate = {} }: OcflStorageOption
 
     return {
       type: 'stream',
-      // Typed against the global ReadableStream, which is DOM's under lib dom
-      open: () => Readable.fromWeb(file.stream() as ReadableStream<Uint8Array>),
+      open: () => Readable.fromWeb(file.stream()),
       // Stats the stored file, so missing content fails here rather than after the headers are sent
       contentLength: await file.size(),
       etag: `"${file.digest}"`,

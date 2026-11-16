@@ -14,7 +14,6 @@ import { OcflStorage } from './ocfl.js';
 
 const fixtures = join(import.meta.dirname, '../../test/fixtures/ocfl');
 const pathDirect = join(fixtures, 'path-direct');
-const customLayout = join(fixtures, 'custom-layout');
 
 const contract = 'https://example.com/storage/contract';
 const itemCrate = JSON.stringify({ '@context': 'https://w3id.org/ro/crate/1.2/context', '@graph': [{ name: 'Item' }] });
@@ -145,7 +144,11 @@ describe('OcflStorage', () => {
     });
 
     it('throws on a layout it does not implement', async () => {
-      await expect(OcflStorage({ root: customLayout })).rejects.toMatchObject({ code: 'UNSUPPORTED_LAYOUT' });
+      const root = await storageRoot('custom-layout', {
+        'ocfl_layout.json': JSON.stringify({ extension: 'example-custom-layout' }),
+      });
+
+      await expect(OcflStorage({ root })).rejects.toMatchObject({ code: 'UNSUPPORTED_LAYOUT' });
     });
 
     it('throws without ocfl_layout.json', async () => {

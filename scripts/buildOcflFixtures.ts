@@ -234,13 +234,6 @@ const hashedNTuple: Layout = {
   },
 };
 
-/** A layout OcflStorage doesn't implement, so it refuses the storage root */
-const customLayout: Layout = {
-  extension: 'example-custom-layout',
-  description: 'Objects sit in objects/ under the last segment of their identifier.',
-  map: (id) => `objects/${id.split('/').at(-1)}`,
-};
-
 const storedItems: State = Object.fromEntries(contractItems.map(({ path, body }) => [path, body]));
 
 const itemCrate = JSON.stringify({ '@context': 'https://w3id.org/ro/crate/1.2/context', '@graph': [{ name: 'Item' }] });
@@ -292,12 +285,6 @@ writeStorageRoot({
       damage: 'directory-manifest',
     },
   ],
-});
-
-writeStorageRoot({
-  dir: 'custom-layout',
-  layout: customLayout,
-  objects: [{ id: 'https://example.com/storage/custom', versions: single({ 'ro-crate-metadata.json': itemCrate }) }],
 });
 
 // Must match the ids in src/storage/ocfl/ocfl.test.ts
