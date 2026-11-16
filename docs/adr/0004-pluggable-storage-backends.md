@@ -33,10 +33,12 @@ So Metadata may be stored as a file (on disk, in S3 or in OCFL), kept in the
 database, or generated on request, and Content is stored on disk, in S3 or in
 OCFL. Entity ids are URLs with no general mapping to where their bytes live.
 
-The only maintained OCFL library for Node, `@ocfl/ocfl-fs` 0.4.0, is
-GPL-3.0, pre-1.0 and untyped, but LDaCA maintains it and can fix it upstream.
-LDaCA stores one RO-Crate per OCFL object, with the root `@id` as the object
-id, under a nonstandard `000N-path-direct-storage-layout`.
+The only maintained OCFL library for Node, `@ocfl/ocfl-fs`, is GPL-3.0 and
+maintained by LDaCA, which can fix it upstream. Its 1.0 API opens objects only
+by id through a storage root, reads the storage layout from the root itself,
+and gives out no paths on disk: a file is read as a stream. LDaCA stores one
+RO-Crate per OCFL object, with the root `@id` as the object id, under a
+nonstandard `000N-path-direct-storage-layout`.
 
 A deposit API may follow. It needn't be designed now, but this decision must
 not preclude it.
@@ -100,7 +102,7 @@ not preclude it.
 - `null` is a 404. Anything thrown is a 500, logged. There is no storage
   error class.
 - Reference backends turn their own "missing" errors (`ENOENT`, S3
-  `NoSuchKey`, an object or path missing from an OCFL inventory) into `null`.
+  `NoSuchKey`, a missing OCFL object or logical path) into `null`.
 
 ### Where things live
 
@@ -143,18 +145,20 @@ not preclude it.
   streams. A stream calls `HeadObject` for its headers, then `open()` calls
   `GetObject` with `IfMatch`, so it never splices two versions; an object
   changed in between throws.
-- **`OcflStorage({ root, objectRoot?, locate? })`** is async: it reads the
-  storage root's `ocfl_layout.json` at startup and throws on a layout it
-  doesn't implement unless the consumer supplies `objectRoot(id)`. It
-  implements layouts 0002, 0003, 0004 and LDaCA's
-  `000N-path-direct-storage-layout`. `locate` returns `{ object, path }`, the
-  object id and the plain logical path. Only the head version is served;
-  mutable HEAD is ignored. Each request loads the object's inventory (no
-  cache), maps the logical path through head's state to a content path, and
-  returns a `path` delivery with length and Last-Modified from `stat` and a
-  strong ETag from the inventory digest. An inventory that fails its sidecar
-  check or won't parse, or an `objectRoot` result or manifest path outside
-  the root, throws.
+- **`OcflStorage({ root, locate? })`** is async: it opens the storage root
+  at startup, and `@ocfl/ocfl-fs` throws on a root without `ocfl_layout.json`
+  or with a layout other than 0002, 0003, 0004 and LDaCA's
+  `000N-path-direct-storage-layout`. There is no way to place an object
+  outside the layout. `locate` returns `{ object, path }`, the object id and
+  the plain logical path. Only the head version is served; mutable HEAD is
+  ignored. Each request opens the object by id (no cache), finds the logical
+  path in head and returns a `stream` delivery: length from the stored
+  file's size, a strong ETag from its digest, and Last-Modified from the
+  file's `modifiedAt`, when the version in which the path took its current
+  content was committed. `open()` is `file.stream()`, which opens the content
+  before it resolves, so missing, unreadable or non-regular content fails
+  before the headers. `OBJECT_NOT_FOUND` is `null`; every other `OcflError`,
+  including an id the layout can't map, throws.
 - **`EntityMetaMetadata({ key? })`** is a Metadata half only. It returns the
   value at `Entity.meta[key]` (default `rocrate`) as a `json` delivery.
 
@@ -167,12 +171,11 @@ not preclude it.
   The root exports the plugin and the contract types (`StorageBackend`, the
   deliveries, the `meta` and OCFL location shapes).
 - `@aws-sdk/client-s3` and `@aws-sdk/s3-request-presigner` (`^3`) and
-  `@ocfl/ocfl-fs` (`^0.4.0`) are optional peer dependencies, imported
-  statically by their subpaths. No direct dependency is added.
+  `@ocfl/ocfl-fs` (`^1.0.0-beta.59`) are optional peer
+  dependencies, imported statically by their subpaths. No direct dependency
+  is added.
 - The OCFL backend reads through `@ocfl/ocfl-fs` rather than an in-house
-  reader. Its gaps (types, keeping a configured layout, distinct errors) are
-  worked around locally until fixed upstream, and the workarounds must be
-  gone before 5.0 is stable.
+  reader, and doesn't work around it: a gap is fixed upstream.
 
 ### Tests
 
@@ -213,15 +216,22 @@ not preclude it.
   is short; a download need only start within it.
 - An S3 stream costs two round trips per GET.
 - `@ocfl/ocfl-fs` is GPL-3.0, which reaches only consumers who use the OCFL
-  backend and distribute their app; the docs say so. Each OCFL request loads
-  an inventory, and a request during a writer's inventory swap may get a
-  500. Caching, if needed, goes upstream first.
+  backend and distribute their app; the docs say so. Each OCFL request opens
+  the object, reading and checking its whole inventory, and a request during
+  a writer's inventory swap may get a 500. Caching, if needed, goes upstream
+  first.
+- Once content is open, removing its object doesn't interrupt the response.
+  A read that fails part-way through, such as on a failing disk, drops the
+  connection.
+- A storage root whose layout `@ocfl/ocfl-fs` doesn't implement can't be
+  served by `OcflStorage`; its consumer writes its own halves.
 - Serving an older OCFL version (an optional `version` on the location), an
   inventory cache, nginx acceleration, a storage error class and an exported
   contract suite can each be added later without a breaking change.
 - Range requests need no contract change beyond `open` taking a range: S3
   redirects already seek, the library will serve ranges from `path`
-  deliveries, and an S3 stream passes the range to `GetObject`. Until then,
+  deliveries, an S3 stream passes the range to `GetObject`, and an OCFL
+  stream to `file.stream({ start, end })`. Until then,
   a consumer wanting seekable directory or OCFL Content writes a `content`
   half that redirects to its own signed route.
 - Customising storage beyond the factory options means writing a half.

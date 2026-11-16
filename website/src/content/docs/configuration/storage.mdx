@@ -133,22 +133,22 @@ for missing objects to be 404s.
 ## `OcflStorage`
 
 Serves both halves from the head version of objects in an [OCFL](https://ocfl.io) storage root on local disk, through
-[`@ocfl/ocfl-fs`](https://www.npmjs.com/package/@ocfl/ocfl-fs). Install it alongside arocapi (`pnpm add
-@ocfl/ocfl-fs`); it is an optional peer dependency, loaded only by `arocapi/storage/ocfl`. `@ocfl/ocfl-fs` is
-licensed GPL-3.0-or-later: the licence applies to your app if you use this backend and distribute it.
+[`@ocfl/ocfl-fs`](https://www.npmjs.com/package/@ocfl/ocfl-fs) 1.0. Install it alongside arocapi (`pnpm add
+@ocfl/ocfl-fs@beta` until 1.0 is released); it is an optional peer dependency, loaded only by `arocapi/storage/ocfl`.
+`@ocfl/ocfl-fs` is licensed GPL-3.0-or-later: the licence applies to your app if you use this backend and distribute
+it.
 
-`OcflStorage` is async, because it reads the storage root at startup:
+`OcflStorage` is async, because it opens the storage root at startup:
 
 <Code code={storageOcfl} lang="ts" />
 
-| Option       | Required | Type                      | Default                                 | Purpose                                         |
-| ------------ | -------- | ------------------------- | --------------------------------------- | ----------------------------------------------- |
-| `root`       | yes      | string                    | none                                    | The OCFL storage root.                          |
-| `objectRoot` | no       | `(id) => string`          | the layout in `ocfl_layout.json`        | Where an object sits, relative to `root`; may be async. |
-| `locate`     | no       | `{ metadata?, content? }` | read `meta.ocflObject` and `meta.ocflPath` | Where each item is: `metadata(entity)` and `content(file, entity)` return, or resolve to, an `OcflLocation` `{ object, path }` or `null`. |
+| Option   | Required | Type                      | Default                                    | Purpose                                         |
+| -------- | -------- | ------------------------- | ------------------------------------------ | ----------------------------------------------- |
+| `root`   | yes      | string                    | none                                       | The OCFL storage root.                          |
+| `locate` | no       | `{ metadata?, content? }` | read `meta.ocflObject` and `meta.ocflPath` | Where each item is: `metadata(entity)` and `content(file, entity)` return, or resolve to, an `OcflLocation` `{ object, path }` or `null`. |
 
-At startup `OcflStorage` reads `ocfl_layout.json` and its extension config (`extensions/<layout>/config.json`, such
-as the digest algorithm and tuple size and number), and implements these storage layouts:
+At startup `@ocfl/ocfl-fs` reads the storage root's `ocfl_layout.json` and the layout's config
+(`extensions/<layout>/config.json`). The root must use one of these storage layouts:
 
 - [`0002-flat-direct-storage-layout`](https://ocfl.github.io/extensions/0002-flat-direct-storage-layout.html)
 - [`0003-hash-and-id-n-tuple-storage-layout`](https://ocfl.github.io/extensions/0003-hash-and-id-n-tuple-storage-layout.html)
@@ -156,25 +156,31 @@ as the digest algorithm and tuple size and number), and implements these storage
   including `shortObjectRoot`
 - LDaCA's `000N-path-direct-storage-layout`
 
-For any other layout, or a root without `ocfl_layout.json`, pass `objectRoot`, or it throws. It also throws if `root`
-isn't an OCFL storage root.
+`OcflStorage` throws an `OcflError` if `root` isn't an OCFL storage root or has no `ocfl_layout.json`
+(`INVALID_STORAGE_ROOT`), or uses any other layout (`UNSUPPORTED_LAYOUT`). Objects are found by id through the
+layout alone, so a storage root with another layout can't be served.
 
 Without `locate`, Metadata is read from `Entity.meta.ocflObject` and `Entity.meta.ocflPath`, which defaults to
 `ro-crate-metadata.json`, and Content from `File.meta.ocflObject` and `File.meta.ocflPath`. `object` is the OCFL
 object id and `path` a logical path in the object's head version.
 
-- Each request loads the object's inventory, with no cache, and serves the head version. Older versions and a
-  mutable HEAD (extension 0005) are never served.
+- Each request opens the object, with no cache, and serves the head version. Older versions and a mutable HEAD
+  (extension 0005) are never served.
 - A missing key, a `locate` returning `null`, an object that doesn't exist or a logical path not in head is a 404.
 - An `ocflObject` or `ocflPath` that isn't a string, `null` included, is a 500, logged with the entity id and key, as
-  is a logical path that is absolute or has a `..` segment. An object id is any string, mapped by the storage layout.
-- An inventory that fails its sidecar digest check or won't parse is a 500, as is an object root outside the storage
-  root, or a manifest path outside its object or not naming a file. A request made while a writer swaps an inventory may also get a 500.
-- These checks compare paths, not symlink targets. OCFL forbids symlinks in a storage root; any present are followed,
-  even outside the root, so keep the root writable only by trusted tools.
+  is a logical path that is absolute or has a `..` segment. An object id is any string, mapped by the storage layout;
+  one the layout can't map, such as a path-direct id with a `..` segment, is a 500.
+- An object `@ocfl/ocfl-fs` refuses to open is a 500: an inventory that won't parse, doesn't match its sidecar
+  outside a writer's commit, or names a content path outside the object, and an object root that holds something
+  other than the object. A request made while a writer swaps an inventory may also get a 500.
+- Stored content that is missing, unreadable or not a regular file is a 500, for HEAD as well as GET. Content is
+  streamed, and `@ocfl/ocfl-fs` opens it before the headers are sent, so the 500 is clean.
+- `@ocfl/ocfl-fs` compares paths, not symlink targets. OCFL forbids symlinks in a storage root; any present are
+  followed, even outside the root, so keep the root writable only by trusted tools.
 
-Content-Length and Last-Modified come from the file on disk, with a strong ETag from its inventory digest.
-Content-Type comes from `File.mediaType`; Metadata is always `application/ld+json`.
+Content-Length is the stored file's size and the ETag is its strong inventory digest. Last-Modified is when the
+version in which the logical path took its current content was committed, from the inventory, so it doesn't change
+when a later version leaves the file as it was, or when the stored file is copied or restored. Content-Type comes from `File.mediaType`; Metadata is always `application/ld+json`.
 
 ## Protective headers
 

@@ -1,0 +1,38 @@
+{
+  "id": "https://example.com/storage/history",
+  "type": "https://ocfl.io/1.1/spec/#inventory",
+  "digestAlgorithm": "sha512",
+  "head": "v1",
+  "contentDirectory": "content",
+  "manifest": {
+    "821a16cdb14cb2ff8657fb972120674e74c683cb82b18ef64020dd0c7a01de0bd8255ee3f1f77b3e723a83f547609fe01c9229bce5b04e2af05a06bd23382e9d": [
+      "v1/content/kept.txt"
+    ],
+    "7fdd80dbdded156323d36c459e5fd133a4d888c227320cfb7042be9feb35d7f07201e535697af914e69d6f46b2a88655c86c2371288052ccd4fa92058b01d3fd": [
+      "v1/content/reverted.txt"
+    ],
+    "c8bb4bc13b50685c8eeb5fb5c2963c72ebd624bba8508dcb3bcefeb2e8856f46f64567568ccbe55e00c7ae8d9e3bf79f7d9f54e9ba54e26fadece4dab066aef1": [
+      "v1/content/returned.txt"
+    ]
+  },
+  "versions": {
+    "v1": {
+      "created": "2025-01-01T00:00:00.000Z",
+      "message": "Initial",
+      "user": {
+        "name": "arocapi fixtures"
+      },
+      "state": {
+        "821a16cdb14cb2ff8657fb972120674e74c683cb82b18ef64020dd0c7a01de0bd8255ee3f1f77b3e723a83f547609fe01c9229bce5b04e2af05a06bd23382e9d": [
+          "kept.txt"
+        ],
+        "7fdd80dbdded156323d36c459e5fd133a4d888c227320cfb7042be9feb35d7f07201e535697af914e69d6f46b2a88655c86c2371288052ccd4fa92058b01d3fd": [
+          "reverted.txt"
+        ],
+        "c8bb4bc13b50685c8eeb5fb5c2963c72ebd624bba8508dcb3bcefeb2e8856f46f64567568ccbe55e00c7ae8d9e3bf79f7d9f54e9ba54e26fadece4dab066aef1": [
+          "returned.txt"
+        ]
+      }
+    }
+  }
+}

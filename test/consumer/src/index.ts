@@ -95,12 +95,14 @@ export const badDelivery = S3Storage({ client: s3, bucket: 'archive', delivery: 
 // OCFL's locate returns an object id and a logical path
 export const ocfl: Promise<StorageBackend> = OcflStorage({
   root: '/ocfl',
-  objectRoot: async (id: string) => encodeURIComponent(id),
   locate: { content: (file: File, entity: Entity) => ({ object: entity.id, path: file.filename }) },
 });
 
 // @ts-expect-error locate returns an OcflLocation, not a path
 export const ocflPathLocate = OcflStorage({ root: '/ocfl', locate: { metadata: () => 'ro-crate-metadata.json' } });
+
+// @ts-expect-error objects are found through the storage root's layout alone
+export const ocflObjectRoot = OcflStorage({ root: '/ocfl', objectRoot: (id: string) => id });
 
 // The meta shapes the reference backends read are what an indexer writes
 export const metas: Prisma.InputJsonObject[] = [
