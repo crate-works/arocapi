@@ -1,60 +1,19 @@
-import { readFile, stat } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { Readable } from 'node:stream';
+import type { ReadableStream } from 'node:stream/web';
+import { OcflError, type OcflObject, openStorageRoot, type StorageRoot } from '@ocfl/ocfl-fs';
 import type { Entity, File } from '../../generated/prisma/client.js';
-import type {
-  MaybePromise,
-  OcflLocation,
-  OcflStorageMeta,
-  PathDelivery,
-  StorageBackend,
-  StorageLocate,
-} from '../backend.js';
-import { inside, locator, metaString, safeKey } from '../location.js';
-import { nullIfMissing, pathDelivery, withContentType } from '../results.js';
-import { headFile, layoutObjectRoot } from './ocflFs.js';
+import type { OcflLocation, OcflStorageMeta, StorageBackend, StorageLocate, StreamDelivery } from '../backend.js';
+import { locator, metaString, safeKey } from '../location.js';
+import { withContentType } from '../results.js';
 
 export type OcflStorageOptions = {
-  /** The OCFL storage root */
+  /** The OCFL storage root, whose ocfl_layout.json names a storage layout @ocfl/ocfl-fs implements */
   root: string;
-  /** Where an object sits, relative to `root`, for a storage layout OcflStorage doesn't implement */
-  objectRoot?: (id: string) => MaybePromise<string>;
   /** Where each item sits, instead of `meta.ocflObject` and `meta.ocflPath` */
   locate?: StorageLocate<OcflLocation>;
 };
 
-const LAYOUTS = new Set([
-  '0002-flat-direct-storage-layout',
-  '0003-hash-and-id-n-tuple-storage-layout',
-  '0004-hashed-n-tuple-storage-layout',
-  '000N-path-direct-storage-layout',
-]);
-
 const METADATA_PATH = 'ro-crate-metadata.json';
-
-const MARKERS = ['0=ocfl_1.1', '0=ocfl_1.0'];
-
-const readJson = async (path: string): Promise<unknown> => {
-  const text = await nullIfMissing(readFile(path, 'utf8'));
-
-  return text === null ? null : JSON.parse(text);
-};
-
-const readLayoutObjectRoot = async (base: string) => {
-  const layout = await readJson(join(base, 'ocfl_layout.json'));
-  const extension = (layout as { extension?: unknown } | null)?.extension;
-  if (typeof extension !== 'string') {
-    throw new Error(`${base} has no ocfl_layout.json naming its storage layout; pass objectRoot`);
-  }
-  if (!LAYOUTS.has(extension)) {
-    throw new Error(
-      `${base} uses the storage layout ${extension}, which OcflStorage doesn't implement; pass objectRoot`,
-    );
-  }
-
-  const config = await readJson(join(base, 'extensions', extension, 'config.json'));
-
-  return layoutObjectRoot(base, extension, config as object | null);
-};
 
 const metaKey = (row: Entity | File, key: keyof OcflStorageMeta) => metaString<OcflStorageMeta>(row.meta, row.id, key);
 
@@ -76,54 +35,65 @@ const defaultLocations = {
 /** An object id is mapped by the layout, so only the logical path is a key */
 const safeLocation = ({ path }: OcflLocation, id: string) => safeKey(path, id);
 
+const openObject = async (root: StorageRoot, id: string) => {
+  try {
+    return await root.open(id);
+  } catch (error) {
+    if (error instanceof OcflError && error.code === 'OBJECT_NOT_FOUND') {
+      return null;
+    }
+
+    throw error;
+  }
+};
+
+/** When `path` took the content it has in the head version: the earliest version of the run ending at head */
+const changedAt = (object: OcflObject, path: string, digest: string) => {
+  let created = object.head.created;
+  for (let number = object.head.number - 1; number > 0; number--) {
+    const version = object.versions.get(number);
+    if (version?.files.get(path)?.digest !== digest) {
+      break;
+    }
+    created = version.created;
+  }
+
+  return created;
+};
+
 /**
  * Serve Metadata and Content from the head version of objects in an OCFL storage root on local disk
- * Throws when `root` isn't a storage root, or uses a storage layout it doesn't implement and no `objectRoot` is given
+ * Throws an `OcflError` when `root` isn't a storage root, or uses a storage layout @ocfl/ocfl-fs doesn't implement
  */
-export const OcflStorage = async ({
-  root,
-  objectRoot: custom,
-  locate = {},
-}: OcflStorageOptions): Promise<StorageBackend> => {
-  const base = resolve(root);
-  const markers = await Promise.all(MARKERS.map((name) => nullIfMissing(stat(join(base, name)))));
-  if (!markers.some(Boolean)) {
-    throw new Error(`${base} is not an OCFL storage root`);
-  }
-  const objectRoot = custom ?? (await readLayoutObjectRoot(base));
+export const OcflStorage = async ({ root: path, locate = {} }: OcflStorageOptions): Promise<StorageBackend> => {
+  const root = await openStorageRoot(path);
   const locations = locator(locate, defaultLocations, safeLocation);
 
-  const deliver = async (location: OcflLocation | null, id: string): Promise<PathDelivery | null> => {
+  const deliver = async (location: OcflLocation | null): Promise<StreamDelivery | null> => {
     if (location === null) {
       return null;
     }
 
-    const objectPath = resolve(base, await objectRoot(location.object));
-    if (!inside(base, objectPath)) {
-      throw new Error(`${id}: the root of OCFL object ${location.object} is outside the storage root`);
-    }
-
-    const file = await headFile(objectPath, location.path);
-    if (file === null) {
+    const object = await openObject(root, location.object);
+    const file = object?.head.files.get(location.path);
+    if (!object || !file) {
       return null;
     }
 
-    const path = resolve(objectPath, file.contentPath);
-    if (!inside(objectPath, path)) {
-      throw new Error(`${id}: OCFL object ${location.object} has a manifest path outside its root`);
-    }
-
-    const stats = await stat(path);
-    if (!stats.isFile()) {
-      throw new Error(`${id}: OCFL object ${location.object} has a manifest path that is not a file`);
-    }
-
-    return pathDelivery(path, stats, `"${file.digest}"`);
+    return {
+      type: 'stream',
+      // Typed against the global ReadableStream, which is DOM's under lib dom
+      open: () => Readable.fromWeb(file.stream() as ReadableStream<Uint8Array>),
+      // Stats the stored file, so missing content fails here rather than after the headers are sent
+      contentLength: await file.size(),
+      etag: `"${file.digest}"`,
+      lastModified: changedAt(object, location.path, file.digest),
+    };
   };
 
   return {
-    metadata: async (entity) => deliver(await locations.metadata(entity), entity.id),
+    metadata: async (entity) => deliver(await locations.metadata(entity)),
     content: async (file, entity) =>
-      withContentType(await deliver(await locations.content(file, entity), file.id), file.mediaType),
+      withContentType(await deliver(await locations.content(file, entity)), file.mediaType),
   };
 };

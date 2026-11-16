@@ -1,4 +1,4 @@
-import { isAbsolute, relative, sep } from 'node:path';
+import { isAbsolute } from 'node:path';
 import type { Entity, File, Prisma } from '../generated/prisma/client.js';
 import type { StorageLocate } from './backend.js';
 
@@ -34,13 +34,6 @@ export const safeKey = (key: string, id: string) => {
   }
 
   return key;
-};
-
-/** Whether `path` is strictly below `root` */
-export const inside = (root: string, path: string) => {
-  const rel = relative(root, path);
-
-  return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 };
 
 type DefaultKeys<Key> = {
