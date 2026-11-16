@@ -13,8 +13,12 @@ type State = Record<string, string>;
 type Version = { message: string; state: State };
 
 type Damage =
-  /** The sidecar records a digest that isn't the inventory's */
+  /** The root sidecar records a digest that isn't the inventory's, though the head version's copy matches */
   | 'sidecar'
+  /** The root inventory was changed after its sidecar was written, so it matches neither sidecar */
+  | 'changed-inventory'
+  /** A manifest content path names no stored file */
+  | 'missing-content'
   /** inventory.json isn't JSON */
   | 'unparseable'
   /** A manifest content path leaves the object root */
@@ -108,6 +112,14 @@ const writeObject = (root: string, { id, versions, mutableHead, damage }: Object
 
   if (damage === 'sidecar') {
     write(join(root, 'inventory.json.sha512'), `${sha512('not the inventory')}  inventory.json\n`);
+  }
+  if (damage === 'changed-inventory') {
+    write(join(root, 'inventory.json'), `${JSON.stringify({ ...inventory, head: 'v1' })}\n`);
+  }
+  if (damage === 'missing-content') {
+    for (const [first] of Object.values(inventory.manifest as Record<string, string[]>)) {
+      rmSync(join(root, first as string));
+    }
   }
   if (damage === 'unparseable') {
     const text = '{ "id": "truncated",';
@@ -222,7 +234,7 @@ const hashedNTuple: Layout = {
   },
 };
 
-/** A layout OcflStorage doesn't implement, so a consumer must pass `objectRoot` */
+/** A layout OcflStorage doesn't implement, so it refuses the storage root */
 const customLayout: Layout = {
   extension: 'example-custom-layout',
   description: 'Objects sit in objects/ under the last segment of their identifier.',
@@ -254,7 +266,24 @@ writeStorageRoot({
       mutableHead: { ...storedItems, 'collection/item/greeting.wav': 'RIFF unreleased greeting bytes' },
     },
     { id: 'https://example.com/storage/item', versions: single({ 'ro-crate-metadata.json': itemCrate }) },
+    {
+      id: 'https://example.com/storage/history',
+      versions: [
+        { message: 'Initial', state: { 'kept.txt': 'kept', 'reverted.txt': 'first', 'returned.txt': 'back' } },
+        { message: 'Change one, remove one', state: { 'kept.txt': 'kept', 'reverted.txt': 'second' } },
+        {
+          message: 'Revert one, return one',
+          state: { 'kept.txt': 'kept', 'reverted.txt': 'first', 'returned.txt': 'back' },
+        },
+      ],
+    },
     { id: 'https://example.com/storage/bad-sidecar', versions: single(storedItems), damage: 'sidecar' },
+    {
+      id: 'https://example.com/storage/changed-inventory',
+      versions: single(storedItems),
+      damage: 'changed-inventory',
+    },
+    { id: 'https://example.com/storage/missing-content', versions: single(storedItems), damage: 'missing-content' },
     { id: 'https://example.com/storage/unparseable', versions: single(storedItems), damage: 'unparseable' },
     { id: 'https://example.com/storage/escaping-manifest', versions: single(storedItems), damage: 'escaping-manifest' },
     {
