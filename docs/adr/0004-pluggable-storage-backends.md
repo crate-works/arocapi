@@ -15,8 +15,7 @@ an optional nginx `accelPath`), or `false` for a 404. Every consumer wrote its
 own:
 
 - ldacapi keeps Metadata in `Entity.meta.rocrate` and Content in an OCFL
-  storage root on local disk, redirecting to its own signed nginx route so
-  clients can seek.
+  storage root on local disk, which arocapi serves whole.
 - raspbocrate streams from absolute paths stored in `meta`, or from
   `Entity.meta.rocrate`.
 - The example reads collection, item and file directories and generates the
@@ -231,7 +230,8 @@ not preclude it.
 - Range requests need no contract change beyond `open` taking a range: S3
   redirects already seek, the library will serve ranges from `path`
   deliveries, an S3 stream passes the range to `GetObject`, and an OCFL
-  stream to `file.stream({ start, end })`. Until then,
-  a consumer wanting seekable directory or OCFL Content writes a `content`
-  half that redirects to its own signed route.
+  stream to `file.stream({ start, end })`. Until then, directory and OCFL
+  Content can't be sought through the reference backends, ldacapi's included;
+  a consumer that needs seeking writes a `content` half that redirects to its
+  own signed route.
 - Customising storage beyond the factory options means writing a half.
