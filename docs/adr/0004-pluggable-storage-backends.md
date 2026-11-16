@@ -152,8 +152,9 @@ not preclude it.
   outside the layout. `locate` returns `{ object, path }`, the object id and
   the plain logical path. Only the head version is served; mutable HEAD is
   ignored. Each request opens the object by id (no cache), finds the logical
-  path in head and returns a `stream` delivery: length from the stored file's
-  size, read before the headers so missing content is a clean 500, a strong
+  path in head and returns a `stream` delivery whose `open()` reads the first
+  chunk, so unreadable content fails before the headers: length from the
+  stored file's size, a strong
   ETag from its digest, and Last-Modified from the `created` date of the
   earliest version in the run, ending at head, in which the path has its
   current digest. `OBJECT_NOT_FOUND` is `null`; every other `OcflError`,
@@ -170,7 +171,7 @@ not preclude it.
   The root exports the plugin and the contract types (`StorageBackend`, the
   deliveries, the `meta` and OCFL location shapes).
 - `@aws-sdk/client-s3` and `@aws-sdk/s3-request-presigner` (`^3`) and
-  `@ocfl/ocfl-fs` (`^1.0.0-beta.58`, until 1.0 is released) are optional peer
+  `@ocfl/ocfl-fs` (`^1.0.0-beta.58`) are optional peer
   dependencies, imported statically by their subpaths. No direct dependency
   is added.
 - The OCFL backend reads through `@ocfl/ocfl-fs` rather than an in-house
@@ -219,10 +220,10 @@ not preclude it.
   the object, reading and checking its whole inventory, and a request during
   a writer's inventory swap may get a 500. Caching, if needed, goes upstream
   first.
-- OCFL Content is streamed, so a stored file that disappears after its size
-  is read, or a manifest entry naming a directory, fails after the headers
-  are sent and the connection is dropped. `@ocfl/ocfl-fs` gives no way to
-  check that stored content is a regular file.
+- `@ocfl/ocfl-fs` gives no way to check that stored content is a regular
+  file without reading it, so HEAD answers 200 for a manifest entry naming a
+  directory, which GET refuses. A stored file that disappears part-way
+  through a response drops the connection.
 - A storage root whose layout `@ocfl/ocfl-fs` doesn't implement can't be
   served by `OcflStorage`; its consumer writes its own halves.
 - Serving an older OCFL version (an optional `version` on the location), an

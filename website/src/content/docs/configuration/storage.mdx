@@ -173,8 +173,9 @@ object id and `path` a logical path in the object's head version.
 - An object `@ocfl/ocfl-fs` refuses to open is a 500: an inventory that won't parse, matches neither its sidecar nor
   its head version's copy, or names a content path outside the object. So is stored content that is missing. A request
   made while a writer swaps an inventory may also get a 500.
-- Content is streamed. A stored file removed after the request has begun, or a manifest entry naming a directory,
-  fails once the headers are sent, so the connection is dropped instead of answering 500.
+- Content is streamed, opened and first read before the headers, so stored content that is unreadable or a directory
+  is a 500 on GET. HEAD can't tell a directory from a file and answers 200 for it. A stored file removed part-way
+  through a response drops the connection.
 - `@ocfl/ocfl-fs` compares paths, not symlink targets. OCFL forbids symlinks in a storage root; any present are
   followed, even outside the root, so keep the root writable only by trusted tools.
 

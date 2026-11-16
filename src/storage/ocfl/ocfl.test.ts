@@ -160,7 +160,7 @@ describe('OcflStorage', () => {
     it('throws when ocfl_layout.json cannot be read', async () => {
       const root = await storageRoot('unreadable-layout', { 'ocfl_layout.json/inside': '' });
 
-      await expect(OcflStorage({ root })).rejects.toThrow();
+      await expect(OcflStorage({ root })).rejects.toMatchObject({ code: 'EISDIR' });
     });
 
     it('throws on a directory that is not a storage root', async () => {
@@ -250,15 +250,26 @@ describe('OcflStorage', () => {
       expect(response.body).toBe('RIFF greeting bytes');
     });
 
-    // @ocfl/ocfl-fs 1.0 gives no way to tell stored content that is a directory from a file
-    it.fails('refuses a manifest path naming a directory before delivering it, for HEAD as well as GET', async () => {
+    it('answers 500 on GET for a manifest path naming a directory', async () => {
+      const served = await serving(await OcflStorage({ root: pathDirect }));
+
+      const response = await served.content({
+        ocflObject: 'https://example.com/storage/directory-manifest',
+        ocflPath: 'collection/item/greeting.wav',
+      });
+
+      expect(response.statusCode).toBe(500);
+    });
+
+    // @ocfl/ocfl-fs 1.0 gives no way to tell stored content that is a directory from a file without reading it
+    it.fails('refuses a manifest path naming a directory without reading it, as HEAD needs', async () => {
       const storage = await OcflStorage({ root: pathDirect });
       const meta = {
         ocflObject: 'https://example.com/storage/directory-manifest',
         ocflPath: 'collection/item/greeting.wav',
       };
 
-      await expect(storage.content({ ...file, meta }, entity, context)).rejects.toThrow();
+      await expect(storage.content({ ...file, meta }, entity, context)).rejects.toMatchObject({ code: 'EISDIR' });
     });
   });
 

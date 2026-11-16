@@ -1,5 +1,6 @@
+import { once } from 'node:events';
 import { Readable } from 'node:stream';
-import { type OcflObject, openStorageRoot } from '@ocfl/ocfl-fs';
+import { type OcflFile, type OcflObject, openStorageRoot } from '@ocfl/ocfl-fs';
 import type { Entity, File } from '../../generated/prisma/client.js';
 import type { OcflLocation, OcflStorageMeta, StorageBackend, StorageLocate, StreamDelivery } from '../backend.js';
 import { locator, metaString, safeKey } from '../location.js';
@@ -36,6 +37,14 @@ const defaultLocations = {
 /** An object id is mapped by the layout, so only the logical path is a key */
 const safeLocation = ({ path }: OcflLocation, id: string) => safeKey(path, id);
 
+/** A Node stream of `file`, opened and first read so a failure comes before the headers are sent */
+const openFile = async (file: OcflFile) => {
+  const body = Readable.fromWeb(file.stream());
+  await once(body, 'readable');
+
+  return body;
+};
+
 /** When `path` took the content it has in the head version: the earliest version of the run ending at head */
 const changedAt = (object: OcflObject, path: string, digest: string) => {
   let created = object.head.created;
@@ -54,8 +63,8 @@ const changedAt = (object: OcflObject, path: string, digest: string) => {
  * Serve Metadata and Content from the head version of objects in an OCFL storage root on local disk
  * Throws an `OcflError` when `root` isn't a storage root, or uses a storage layout @ocfl/ocfl-fs doesn't implement
  */
-export const OcflStorage = async ({ root: path, locate = {} }: OcflStorageOptions): Promise<StorageBackend> => {
-  const root = await openStorageRoot(path);
+export const OcflStorage = async ({ root, locate = {} }: OcflStorageOptions): Promise<StorageBackend> => {
+  const storageRoot = await openStorageRoot(root);
   const locations = locator(locate, defaultLocations, safeLocation);
 
   const deliver = async (location: OcflLocation | null): Promise<StreamDelivery | null> => {
@@ -63,7 +72,7 @@ export const OcflStorage = async ({ root: path, locate = {} }: OcflStorageOption
       return null;
     }
 
-    const object = await nullIfMissing(root.open(location.object), MISSING);
+    const object = await nullIfMissing(storageRoot.open(location.object), MISSING);
     const file = object?.head.files.get(location.path);
     if (!object || !file) {
       return null;
@@ -71,8 +80,7 @@ export const OcflStorage = async ({ root: path, locate = {} }: OcflStorageOption
 
     return {
       type: 'stream',
-      open: () => Readable.fromWeb(file.stream()),
-      // Stats the stored file, so missing content fails here rather than after the headers are sent
+      open: () => openFile(file),
       contentLength: await file.size(),
       etag: `"${file.digest}"`,
       lastModified: changedAt(object, location.path, file.digest),
