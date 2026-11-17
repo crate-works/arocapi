@@ -895,16 +895,13 @@ describe.each(['OpenSearchBackend', 'PostgresBackend'] as const)('Integration Te
         }
       });
 
-      it("gives each file in /files its file entity's content access", async () => {
+      it("gives each file in /files its file entity's access", async () => {
         const response = await app.inject({ method: 'GET', url: '/files' });
         const { files } = response.json<{ files: AuthorisedFile[] }>();
         const byId = new Map(files.map((f) => [f.id, f.access]));
 
-        expect(byId.get('http://example.com/entity/4')).toEqual({ content: true });
-        expect(byId.get(restrictedFile)).toEqual({
-          content: false,
-          contentAuthorizationUrl: 'https://rems.example.com/apply',
-        });
+        expect(byId.get('http://example.com/entity/4')).toEqual({ metadata: true, content: true });
+        expect(byId.get(restrictedFile)).toEqual(restrictedFileAccess);
       });
 
       it('ignores anything but access returned by the access function', async () => {

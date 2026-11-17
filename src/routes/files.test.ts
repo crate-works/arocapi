@@ -279,7 +279,10 @@ describe('Files Route', () => {
       expect(response.statusCode).toBe(200);
       expect(rows).toEqual([restricted, mockFile2.entity]);
       const { files } = response.json<{ files: Array<{ access: unknown }> }>();
-      expect(files.map((file) => file.access)).toEqual([{ content: false }, { content: true }]);
+      expect(files.map((file) => file.access)).toEqual([
+        { metadata: false, content: false },
+        { metadata: true, content: true },
+      ]);
       for (const file of files) {
         expect(file).not.toHaveProperty('meta');
         expect(file).not.toHaveProperty('entity');
@@ -321,7 +324,7 @@ describe('Files Route', () => {
       await fastifyAfter();
     });
 
-    it('should attach the content access of each file entity', async () => {
+    it("should attach each file entity's access", async () => {
       await fastifyBefore();
 
       const access: AccessFunction = (entity) =>
@@ -332,7 +335,7 @@ describe('Files Route', () => {
               metadataAuthorizationUrl: 'https://example.com/request-metadata',
               contentAuthorizationUrl: 'https://example.com/request-access',
             }
-          : { metadata: true, content: true };
+          : { metadata: false, content: true };
 
       await fastify.register(filesRoute, {
         entityVisibilityFilter: AllVisibleEntityFilter,
@@ -351,10 +354,12 @@ describe('Files Route', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body) as { files: Array<{ access: unknown }> };
       expect(body.files[0].access).toEqual({
+        metadata: false,
         content: false,
+        metadataAuthorizationUrl: 'https://example.com/request-metadata',
         contentAuthorizationUrl: 'https://example.com/request-access',
       });
-      expect(body.files[1].access).toEqual({ content: true });
+      expect(body.files[1].access).toEqual({ metadata: false, content: true });
 
       await fastifyAfter();
     });

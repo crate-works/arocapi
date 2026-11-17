@@ -82,9 +82,9 @@ Content. Trimmed to the relevant fields:
 
 ## Files
 
-A file's access is its file entity's access. In `/files`, each file's `access` keeps only `content` and
-`contentAuthorizationUrl`, because a file listing has no Metadata to guard. On `/file/:id`, only `content` matters: a
-request may download a file whose metadata licence it lacks.
+A file's access is its file entity's access. In `/files`, each file's `access.metadata` says whether its file entity's
+Metadata (`/entity/:id/metadata`) is readable, and `access.content` whether the file is. On `/file/:id`, only `content`
+matters: a request may download a file whose metadata licence it lacks.
 
 ## Collections and objects
 

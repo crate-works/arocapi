@@ -72,9 +72,10 @@ file's `row`, and may be async.
 | `filename`  | `string`                                          |
 | `mediaType` | `string`                                          |
 | `size`      | `number`                                          |
-| `access`    | `{ content: boolean; contentAuthorizationUrl?: string }` |
+| `access`    | `AccessInfo`                                      |
 
-A file's `access` is its file entity's Content access.
+A file's `access` is its file entity's access: `access.metadata` says whether the file entity's Metadata is readable,
+and `access.content` whether the file is.
 
 The third argument, `row` (`FileRow`), is the file's stored database row: `filename`, `mediaType`, `size` as stored (a
 `bigint`), `meta`, `createdAt` and `updatedAt`, plus `entity`, its file entity's `EntityRow`. As with entity

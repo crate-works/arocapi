@@ -59,8 +59,6 @@ export type AuthorisedEntity = StandardEntity & {
   access: AccessInfo;
 };
 
-type FileAccessInfo = Pick<AccessInfo, 'content' | 'contentAuthorizationUrl'>;
-
 /**
  * Standard file shape - output of base file transformation
  * Does not include access information
@@ -73,10 +71,10 @@ export type StandardFile = {
 };
 
 /**
- * Authorised file - a standard file with its file entity's Content access attached
+ * Authorised file - a standard file with its file entity's access attached
  */
 export type AuthorisedFile = StandardFile & {
-  access: FileAccessInfo;
+  access: AccessInfo;
 };
 
 /**
@@ -202,7 +200,7 @@ export const authoriseEntities = async (
 };
 
 /**
- * Transform database files to standard files with their file entity's Content access attached, in input order
+ * Transform database files to standard files with their file entity's access attached, in input order
  */
 export const authoriseFiles = async (
   files: FileRow[],
@@ -215,11 +213,7 @@ export const authoriseFiles = async (
     context,
   );
 
-  return files.map((file, i) => {
-    const { metadata: _metadata, metadataAuthorizationUrl: _metadataUrl, ...fileAccess } = fileEntityAccess[i];
-
-    return { ...baseFileTransformer(file), access: fileAccess };
-  });
+  return files.map((file, i) => ({ ...baseFileTransformer(file), access: fileEntityAccess[i] }));
 };
 
 /**
