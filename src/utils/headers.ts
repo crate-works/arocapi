@@ -1,4 +1,5 @@
 import type { FastifyReply } from 'fastify';
+import type { DeliveryHeaders } from '../storage/backend.js';
 
 /** Sandboxes deposited bytes; see docs/adr/0005-library-sandboxes-delivered-bytes.md */
 const contentSecurityPolicy = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
@@ -15,18 +16,26 @@ const mediaType = new RegExp(
 // quotes, and take the last type, so `audio/mpeg, text/html` is HTML
 const isMedia = (contentType: string) => mediaType.test(contentType);
 
+/** The validators a 200 carries, which a 304 repeats */
+export const setValidatorHeaders = (
+  reply: FastifyReply,
+  { etag, lastModified }: Pick<DeliveryHeaders, 'etag' | 'lastModified'>,
+) => {
+  if (etag) {
+    reply.header('ETag', etag);
+  }
+  if (lastModified) {
+    reply.header('Last-Modified', lastModified.toUTCString());
+  }
+};
+
 export const setDeliveryHeaders = (
   reply: FastifyReply,
   metadata: { contentType: string; contentLength: number; etag?: string; lastModified?: Date },
 ) => {
   reply.header('Content-Type', metadata.contentType);
   reply.header('Content-Length', metadata.contentLength.toString());
-  if (metadata.etag) {
-    reply.header('ETag', metadata.etag);
-  }
-  if (metadata.lastModified) {
-    reply.header('Last-Modified', metadata.lastModified.toUTCString());
-  }
+  setValidatorHeaders(reply, metadata);
 
   // Last, so a throw above can't leave them on the 500
   reply.header('X-Content-Type-Options', 'nosniff');

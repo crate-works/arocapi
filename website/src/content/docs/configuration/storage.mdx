@@ -230,8 +230,19 @@ arocapi sends `Content-Disposition` on `stream` and `path` deliveries, and passe
 `contentDisposition`, so a redirecting backend can bake it into its URL. Any other `disposition` or `noRedirect` value
 is a 400. `/entity/:id/metadata` takes no query parameters.
 
-## Range requests
+## Range and conditional requests
 
-arocapi doesn't handle `Range` headers yet: a `stream` or `path` delivery is always sent whole, with the full
-`Content-Length`. A redirect to storage that seeks, such as a presigned object storage URL, supports ranges today, and
-`path` deliveries will once [Range support](https://github.com/crate-works/arocapi/issues/45) lands.
+arocapi answers these itself for `stream` and `path` deliveries, after visibility and access, so a hidden or Denied
+request gets its usual response whatever headers it sends. A `redirect` is left to its target.
+
+- **`Range`** on `GET /file/:id`: a single `bytes` range gets `206` with `Content-Range`. A range starting past the
+  end, `bytes=-0`, or any range of empty Content gets `416` `RANGE_NOT_SATISFIABLE` with `Content-Range: bytes */<size>`.
+  A malformed, multi-range or non-`bytes` header is ignored and gets the whole file. `HEAD` ignores `Range`.
+  `/file/:id` responses carry `Accept-Ranges: bytes`. Metadata is always sent whole.
+- **`If-Range`**: the range is served only when the header is the delivery's strong `ETag`, or the exact date of its
+  `Last-Modified` when that is at least a second old, so `DirectoryStorage`'s weak ETag still resumes. Otherwise the
+  whole file is sent, so a client never joins two versions.
+- **`If-None-Match`** and, without it, **`If-Modified-Since`**, on Content and Metadata: a client holding the current
+  version gets `304` with `ETag` and `Last-Modified`, and nothing is opened.
+
+`If-Match`, `If-Unmodified-Since` and `412` aren't handled.

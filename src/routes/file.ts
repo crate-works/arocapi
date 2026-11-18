@@ -77,7 +77,7 @@ const file: FastifyPluginAsync<FileRouteOptions> = async (fastify, opts) => {
         return reply.code(404).send(createNotFoundError('The requested file could not be retrieved', id));
       }
 
-      return sendDelivery(request, reply, delivery, { contentDisposition: disposed, noRedirect });
+      return sendDelivery(request, reply, delivery, { item: 'content', contentDisposition: disposed, noRedirect });
     },
   });
 };
