@@ -156,8 +156,9 @@ At startup `@ocfl/ocfl-fs` reads the storage root's `ocfl_layout.json` and the l
   including `shortObjectRoot`
 - LDaCA's `000N-path-direct-storage-layout`
 
-`OcflStorage` throws an `OcflError` if `root` isn't an OCFL storage root or has no `ocfl_layout.json`
-(`INVALID_STORAGE_ROOT`), or uses any other layout (`UNSUPPORTED_LAYOUT`). Objects are found by id through the
+`OcflStorage` throws an `OcflError` if `root` isn't an OCFL storage root, has no `ocfl_layout.json`, or uses any
+other layout; its `code` says which, as listed in the [`@ocfl/ocfl-fs` errors
+guide](https://language-research-technology.github.io/ocfl-js/guides/errors/). Objects are found by id through the
 layout alone, so a storage root with another layout can't be served.
 
 Without `locate`, Metadata is read from `Entity.meta.ocflObject` and `Entity.meta.ocflPath`, which defaults to
@@ -169,7 +170,7 @@ object id and `path` a logical path in the object's head version.
 - A missing key, a `locate` returning `null`, an object that doesn't exist or a logical path not in head is a 404.
 - An `ocflObject` or `ocflPath` that isn't a string, `null` included, is a 500, logged with the entity id and key, as
   is a logical path that is absolute or has a `..` segment. An object id is any string, mapped by the storage layout;
-  one the layout can't map, such as a path-direct id with a `..` segment, is a 500.
+  one the layout can't place, such as a path-direct id with a `..` segment, is a 404, as no object can have it.
 - An object `@ocfl/ocfl-fs` refuses to open is a 500: an inventory that won't parse, doesn't match its sidecar
   outside a writer's commit, or names a content path outside the object, and an object root that holds something
   other than the object. A request made while a writer swaps an inventory may also get a 500.

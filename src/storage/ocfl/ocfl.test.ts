@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { OcflErrorCode } from '@ocfl/ocfl-fs';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { mockReset } from 'vitest-mock-extended';
@@ -23,6 +24,8 @@ const entity = entityRow();
 const file = fileRow({ id: entity.id });
 
 const context = {} as ContentContext;
+
+const ocflError = (code: OcflErrorCode) => ({ name: 'OcflError', code });
 
 const apps: FastifyInstance[] = [];
 
@@ -148,13 +151,13 @@ describe('OcflStorage', () => {
         'ocfl_layout.json': JSON.stringify({ extension: 'example-custom-layout' }),
       });
 
-      await expect(OcflStorage({ root })).rejects.toMatchObject({ code: 'UNSUPPORTED_LAYOUT' });
+      await expect(OcflStorage({ root })).rejects.toMatchObject(ocflError('UNSUPPORTED_LAYOUT'));
     });
 
     it('throws without ocfl_layout.json', async () => {
       const root = await storageRoot('no-layout', {});
 
-      await expect(OcflStorage({ root })).rejects.toMatchObject({ code: 'INVALID_STORAGE_ROOT' });
+      await expect(OcflStorage({ root })).rejects.toMatchObject(ocflError('LAYOUT_NOT_DECLARED'));
     });
 
     it('throws when ocfl_layout.json cannot be read', async () => {
@@ -164,28 +167,28 @@ describe('OcflStorage', () => {
     });
 
     it('throws on a directory that is not a storage root', async () => {
-      await expect(OcflStorage({ root: join(pathDirect, 'https_example.com') })).rejects.toMatchObject({
-        code: 'INVALID_STORAGE_ROOT',
-      });
-      await expect(OcflStorage({ root: join(scratch, 'nothing-here') })).rejects.toMatchObject({
-        code: 'INVALID_STORAGE_ROOT',
-      });
+      await expect(OcflStorage({ root: join(pathDirect, 'https_example.com') })).rejects.toMatchObject(
+        ocflError('INVALID_STORAGE_ROOT'),
+      );
+      await expect(OcflStorage({ root: join(scratch, 'nothing-here') })).rejects.toMatchObject(
+        ocflError('STORAGE_ROOT_NOT_FOUND'),
+      );
     });
   });
 
   describe('object ids', () => {
-    it('refuses an id the layout cannot map with 500', async () => {
+    it('finds nothing for an id the layout cannot place', async () => {
       const served = await serving(await OcflStorage({ root: pathDirect }));
 
       const response = await served.metadata({ ocflObject: '../../outside' });
 
-      expect(response.statusCode).toBe(500);
+      expect(response.statusCode).toBe(404);
       await expect(
         (await OcflStorage({ root: pathDirect })).metadata(
           { ...entity, meta: { ocflObject: '../../outside' } },
           context,
         ),
-      ).rejects.toMatchObject({ code: 'ID_INCOMPATIBLE_WITH_LAYOUT' });
+      ).resolves.toBeNull();
     });
   });
 
@@ -249,9 +252,9 @@ describe('OcflStorage', () => {
       const response = await served.content(meta);
 
       expect(response.statusCode).toBe(500);
-      await expect(storage.content({ ...file, meta }, entity, context)).rejects.toMatchObject({
-        code: 'INVALID_OBJECT',
-      });
+      await expect(storage.content({ ...file, meta }, entity, context)).rejects.toMatchObject(
+        ocflError('INVALID_OBJECT'),
+      );
     });
   });
 
