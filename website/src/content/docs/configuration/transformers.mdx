@@ -74,8 +74,9 @@ file's `row`, and may be async.
 | `size`      | `number`                                          |
 | `access`    | `AccessInfo`                                      |
 
-A file's `access` is its file entity's access: `access.metadata` says whether the file entity's Metadata is readable,
-and `access.content` whether the file is.
+A file's `access` is its [file entity's](/concepts/entities/#file-entities) access, the entity with the same `id`, not
+the object it belongs to: `access.metadata` says whether `/entity/<file id>/metadata` is readable, and `access.content`
+whether `/file/<file id>` is.
 
 The third argument, `row` (`FileRow`), is the file's stored database row: `filename`, `mediaType`, `size` as stored (a
 `bigint`), `meta`, `createdAt` and `updatedAt`, plus `entity`, its file entity's `EntityRow`. As with entity

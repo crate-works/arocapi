@@ -93,7 +93,8 @@ Response: the RO-Crate metadata from the storage backend's [`metadata`](/configu
 | `order`    | `asc`, `desc`                                | `asc`   | Sort direction.                               |
 
 Response: `{ total, files }`, each file after the [file transformers](/configuration/transformers/#filetransformers).
-A file is Visible when its file entity is.
+A file is Visible when its file entity is. Its `access` is its file entity's [access](/concepts/licences/#files), so
+`access.metadata` is about `/entity/<file id>/metadata`, not the Metadata of the object it belongs to.
 
 ## `GET /file/:id`
 
