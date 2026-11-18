@@ -13,8 +13,14 @@ export type DeliveryHeaders = {
   lastModified?: Date;
 };
 
-/** Bytes the library streams; `open` is called only on GET */
-export type StreamDelivery = { type: 'stream'; open: () => MaybePromise<Readable> } & DeliveryHeaders;
+/** An inclusive byte range: the first byte and the last */
+export type ByteRange = { start: number; end: number };
+
+/**
+ * Bytes the library streams; `open` is called only on GET, with the range to send, and must return exactly those bytes
+ * Without a `Range` request, the range is the whole item; empty items are never opened
+ */
+export type StreamDelivery = { type: 'stream'; open: (range: ByteRange) => MaybePromise<Readable> } & DeliveryHeaders;
 
 /** An absolute path on disk the library opens on GET */
 export type PathDelivery = { type: 'path'; path: string } & DeliveryHeaders;

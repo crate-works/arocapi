@@ -58,7 +58,7 @@ const metadataRoute: FastifyPluginAsync<MetadataRouteOptions> = async (fastify, 
         request,
         reply,
         delivery.type === 'redirect' ? delivery : { ...delivery, contentType: 'application/ld+json' },
-        { json: true },
+        { item: 'metadata' },
       );
     },
   });

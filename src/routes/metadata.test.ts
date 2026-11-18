@@ -115,6 +115,76 @@ describe('Metadata Route', () => {
     });
   });
 
+  describe('range and conditional requests', () => {
+    const open = vi.fn(() => Readable.from([crate]));
+    const stream = (): MetadataDelivery => ({
+      type: 'stream',
+      open,
+      contentLength: crate.length,
+      etag: '"abc"',
+      lastModified,
+    });
+
+    beforeEach(() => {
+      open.mockClear();
+    });
+
+    it('opens the whole Metadata, ignoring Range and not offering ranges', async () => {
+      metadata.mockImplementation(stream);
+
+      const response = await app.inject({ method: 'GET', url, headers: { range: 'bytes=0-3' } });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe(crate);
+      expect(response.headers['accept-ranges']).toBeUndefined();
+      expect(open).toHaveBeenCalledWith({ start: 0, end: crate.length - 1 });
+    });
+
+    it.each(['GET', 'HEAD'] as const)('answers %s with 304 when the client has this version', async (method) => {
+      metadata.mockImplementation(stream);
+
+      const response = await app.inject({ method, url, headers: { 'if-none-match': 'W/"abc"' } });
+
+      expect(response.statusCode).toBe(304);
+      expect(response.body).toBe('');
+      expect(response.headers.etag).toBe('"abc"');
+      expect(open).not.toHaveBeenCalled();
+    });
+
+    it('answers 304 for a json delivery whose ETag the client has', async () => {
+      metadata.mockResolvedValue({ type: 'json', value: { name: 'Ŋaŋa' } });
+      const first = await app.inject({ method: 'GET', url });
+
+      const response = await app.inject({
+        method: 'GET',
+        url,
+        headers: { 'if-none-match': String(first.headers.etag) },
+      });
+
+      expect(response.statusCode).toBe(304);
+      expect(response.headers.etag).toBe(first.headers.etag);
+      expect(response.body).toBe('');
+    });
+
+    it('answers a hidden entity with its hidden response, whatever the headers', async () => {
+      prisma.entity.findFirst.mockResolvedValue(null);
+
+      const response = await app.inject({ method: 'GET', url, headers: { 'if-none-match': '*' } });
+
+      expect(response.statusCode).toBe(404);
+      expect(metadata).not.toHaveBeenCalled();
+    });
+
+    it('refuses denied Metadata, whatever the headers', async () => {
+      built.access.mockReturnValue({ metadata: false, content: true });
+
+      const response = await app.inject({ method: 'GET', url, headers: { 'if-none-match': '*' } });
+
+      expect(response.statusCode).toBe(403);
+      expect(metadata).not.toHaveBeenCalled();
+    });
+  });
+
   describe('redirect delivery', () => {
     it('answers 302 on GET and HEAD', async () => {
       metadata.mockResolvedValue({ type: 'redirect', url: 'https://storage.example.com/ro-crate-metadata.json' });

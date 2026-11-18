@@ -57,7 +57,7 @@ export const OcflStorage = async ({ root, locate = {} }: OcflStorageOptions): Pr
 
     return {
       type: 'stream',
-      open: () => file.stream(),
+      open: (range) => file.stream(range),
       contentLength: await file.size(),
       etag: `"${file.digest}"`,
       lastModified: file.modifiedAt,

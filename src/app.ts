@@ -42,6 +42,7 @@ export { capabilitiesFromFields } from './search/fields.js';
 export type { SearchVisibilityWhere, VisibilityCondition } from './search/visibility.js';
 export { checkSearchVisibility } from './search/visibility.js';
 export type {
+  ByteRange,
   ContentContext,
   ContentDelivery,
   ContentSource,

@@ -6,7 +6,7 @@ sidebar:
 ---
 
 import { Code } from '@astrojs/starlight/components';
-import signedRedirect from '@examples/reference/storage-backend-signed-redirect.ts?raw';
+import rangedStream from '@examples/reference/storage-backend-ranged-stream.ts?raw';
 
 A storage backend is a plain object satisfying the exported `StorageBackend` type, passed as the
 [`storage`](/configuration/storage/) option. `DirectoryStorage` is one; your own is an object literal, or one half of
@@ -49,8 +49,8 @@ disagree.
 
 | `type`     | Fields                                   | Response                                                                                   |
 | ---------- | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `stream`   | `open`, `contentLength`, `etag?`, `lastModified?`, and for Content `contentType` | 200 with the stream `open()` returns. `open` is called only on `GET`, never on `HEAD`. |
-| `path`     | `path`, `contentLength`, `etag?`, `lastModified?`, and for Content `contentType` | 200 with the file at the absolute `path`, which arocapi opens on `GET`.         |
+| `stream`   | `open`, `contentLength`, `etag?`, `lastModified?`, and for Content `contentType` | 200, or 206 for a range, with the stream `open(range)` returns. `open` is called only on `GET`, never on `HEAD`, a 304, a 416 or empty Content. |
+| `path`     | `path`, `contentLength`, `etag?`, `lastModified?`, and for Content `contentType` | 200, or 206 for a range, with the file at the absolute `path`, which arocapi opens on `GET`. |
 | `redirect` | `url`                                    | 302 to `url` for `GET` and `HEAD`. `/file/:id?noRedirect=true` answers 200 `{ "location": url }` instead. |
 | `json`     | `value`                                  | Metadata only: 200 with `value` serialised once, and the Content-Length and a strong ETag from those bytes. |
 
@@ -67,13 +67,19 @@ target has to protect itself; see [protecting the target](/strategies/storage/#s
 - `null` is a 404 `NOT_FOUND`. Turn your storage's own "missing" errors into `null`.
 - Anything thrown is a 500 `INTERNAL_ERROR`, logged, with nothing from the error in the response.
 
-## Example: a signed redirect
+## Ranges and `open`
 
-`path` deliveries are sent whole until arocapi supports `Range`. For seekable Content from disk or OCFL today, a
-`content` half can redirect to a content route of your own, which checks a short-lived signed token and serves the
-file with range support. The token stands in for the access check arocapi already made, so scope it to one file and
-keep the expiry short.
+`open` receives an inclusive `ByteRange`, `{ start, end }`, and must return exactly those bytes. arocapi has already
+parsed `Range`, resolved it against `contentLength` and answered a `416` or `304` itself, so the range is always
+within the item. A request without a range gets the whole item, `{ start: 0, end: contentLength - 1 }`, and
+Metadata is always opened whole. An `open` that ignores its range sends the wrong bytes on a ranged request, and
+TypeScript can't catch it, because a function that takes no arguments still satisfies the type.
 
-<Code code={signedRedirect} lang="ts" />
+Most storage reads a range natively: `createReadStream(path, range)`, `@ocfl/ocfl-fs`'s `file.stream(range)`, or a
+`Range: bytes=<start>-<end>` request header. A `path` delivery needs nothing: arocapi reads the range itself.
+
+## Example: a ranged stream
+
+<Code code={rangedStream} lang="ts" />
 
 Mix it with another backend's Metadata half: `{ metadata: DirectoryStorage({ root }).metadata, content }`.

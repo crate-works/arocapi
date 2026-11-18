@@ -76,10 +76,12 @@ not preclude it.
 
 ### Deliveries
 
-- `stream`: a lazy `open()`, called only on GET, with `contentLength`,
-  optional `etag` and `lastModified`, and for Content a `contentType`.
-- `path`: an absolute `path` the library opens, with the same headers as
-  `stream`. There is no nginx acceleration.
+- `stream`: a lazy `open(range)`, called only on GET with an inclusive
+  `{ start, end }` and returning exactly those bytes (the whole item without
+  a `Range`), with `contentLength`, optional `etag` and `lastModified`, and
+  for Content a `contentType`.
+- `path`: an absolute `path` the library opens, reading only the range
+  needed, with the same headers as `stream`. There is no nginx acceleration.
 - `redirect`: a `url`. HEAD answers 302 too, and `noRedirect` behaves as
   before.
 - `json`, for Metadata only: a `value` the library serialises once, setting
@@ -141,9 +143,9 @@ not preclude it.
   `ResponseContentDisposition`, expiring after `expiresIn` seconds (default
   300) because the URL bypasses access. `delivery: 'stream'` proxies Content
   instead, for buckets clients can't reach or mustn't see. Metadata always
-  streams. A stream calls `HeadObject` for its headers, then `open()` calls
-  `GetObject` with `IfMatch`, so it never splices two versions; an object
-  changed in between throws.
+  streams. A stream calls `HeadObject` for its headers, then `open(range)`
+  calls `GetObject` with `IfMatch` and the `Range`, so it never splices two
+  versions; an object changed in between throws.
 - **`OcflStorage({ root, locate? })`** is async: it opens the storage root
   at startup, and `@ocfl/ocfl-fs` throws on a root without `ocfl_layout.json`
   or with a layout other than 0002, 0003, 0004 and LDaCA's
@@ -154,7 +156,8 @@ not preclude it.
   path in head and returns a `stream` delivery: length from the stored
   file's size, a strong ETag from its digest, and Last-Modified from the
   file's `modifiedAt`, when the version in which the path took its current
-  content was committed. `open()` is `file.stream()`, which opens the content
+  content was committed. `open(range)` is `file.stream(range)`, which opens
+  the content
   before it resolves, so missing, unreadable or non-regular content fails
   before the headers. `OBJECT_NOT_FOUND`, which includes an id the layout
   can't place, is `null`; every other `OcflError` throws.
@@ -180,8 +183,9 @@ not preclude it.
 
 - One internal shared suite runs every reference backend through the HTTP
   app and asserts what the client receives: the bytes, HEAD headers equal to
-  GET's, Content-Type, Content-Disposition, 404 for a missing item, 500 for
-  an unsafe key, and a custom `locate`. S3 runs its Content half both ways,
+  GET's, Content-Type, Content-Disposition, ranges (206 and 416), 304s and
+  `If-Range`, 404 for a missing item, 500 for an unsafe key, and a custom
+  `locate`. S3 runs its Content half both ways,
   following presigned URLs to the server. The suite isn't exported.
 - Behaviour that doesn't depend on a backend (each delivery, `null`, a
   throw, HEAD and GET sharing one call) is tested once against a fake
@@ -227,11 +231,12 @@ not preclude it.
 - Serving an older OCFL version (an optional `version` on the location), an
   inventory cache, nginx acceleration, a storage error class and an exported
   contract suite can each be added later without a breaking change.
-- Range requests need no contract change beyond `open` taking a range: S3
-  redirects already seek, the library will serve ranges from `path`
-  deliveries, an S3 stream passes the range to `GetObject`, and an OCFL
-  stream to `file.stream({ start, end })`. Until then, directory and OCFL
-  Content can't be sought through the reference backends, ldacapi's included;
-  a consumer that needs seeking writes a `content` half that redirects to its
-  own signed route.
+- The library answers `Range`, `If-Range` and conditional `304`s for
+  `stream` and `path` deliveries, after visibility and access, and resolves
+  the range against `contentLength` before anything is opened, so a backend
+  only reads the bytes it is given. Ranges are served on Content only. A
+  `stream` whose `open` ignores its range sends wrong bytes on a ranged
+  request, which the type can't catch. `If-Range` trusts a strong ETag, or a
+  `Last-Modified` date at least a second old, so `DirectoryStorage`'s weak
+  ETag still resumes.
 - Customising storage beyond the factory options means writing a half.

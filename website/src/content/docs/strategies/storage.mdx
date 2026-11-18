@@ -21,11 +21,11 @@ they read under [Entity meta](/reference/entity-meta/#storage-keys).
 
 ## Choosing a backend
 
-| Backend | Content delivery | Ranges today | Peer dependencies | Pick it when |
+| Backend | Content delivery | Ranges | Peer dependencies | Pick it when |
 | --- | --- | --- | --- | --- |
-| [`DirectoryStorage`](/configuration/storage/#directorystorage) | `path` | No | None | Files sit on a disk the API server can read. |
-| [`S3Storage`](/configuration/storage/#s3storage) | presigned `redirect` (default), or `stream` | Yes, on `redirect` | `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner` | Files are in a bucket on AWS S3 or another S3-compatible store. |
-| [`OcflStorage`](/configuration/storage/#ocflstorage) | `stream` | No | `@ocfl/ocfl-fs` (GPL-3.0-or-later) | Files are preserved in an OCFL storage root on local disk, which stays the source of truth. |
+| [`DirectoryStorage`](/configuration/storage/#directorystorage) | `path` | Yes | None | Files sit on a disk the API server can read. |
+| [`S3Storage`](/configuration/storage/#s3storage) | presigned `redirect` (default), or `stream` | Yes | `@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner` | Files are in a bucket on AWS S3 or another S3-compatible store. |
+| [`OcflStorage`](/configuration/storage/#ocflstorage) | `stream` | Yes | `@ocfl/ocfl-fs` (GPL-3.0-or-later) | Files are preserved in an OCFL storage root on local disk, which stays the source of truth. |
 
 The peer dependencies are optional: install only the ones for the backend you import. `@ocfl/ocfl-fs` is licensed
 GPL-3.0-or-later, which matters only if you use `OcflStorage` and distribute your app.
@@ -60,9 +60,9 @@ A `content` half answers with one of three deliveries, which decide who moves th
 
 | Delivery | Who moves the bytes | Trade-off |
 | --- | --- | --- |
-| `path` | arocapi, from a file on local disk | Simple and private, but sent whole for now. |
-| `stream` | arocapi, from a stream the backend opens | Every byte stays behind your API, and your Node process carries the whole transfer. |
-| `redirect` | Whatever serves the URL, such as object storage or a CDN | Offloads the transfer and supports ranges, at the cost of a second request, a second origin and a URL that works for anyone who holds it. |
+| `path` | arocapi, from a file on local disk | Simple and private; arocapi serves ranges itself. |
+| `stream` | arocapi, from a stream the backend opens for the range requested | Every byte stays behind your API, and your Node process carries the transfer. |
+| `redirect` | Whatever serves the URL, such as object storage or a CDN | Offloads the transfer, at the cost of a second request, a second origin and a URL that works for anyone who holds it. |
 
 ```mermaid
 sequenceDiagram
@@ -82,11 +82,9 @@ sequenceDiagram
   end
 ```
 
-**Ranges:** an S3 redirect seeks today, and `path` deliveries will once
-[Support Range requests on GET /file](https://github.com/crate-works/arocapi/issues/45) lands. Until then, a media
-player seeking in a `path` or `stream` file downloads it from the start. For seekable Content from disk or OCFL today,
-redirect to a content route of your own, as in the [signed redirect
-example](/reference/storage-backend/#example-a-signed-redirect).
+**Ranges:** every delivery seeks. arocapi serves [range requests](/configuration/storage/#range-and-conditional-requests)
+from `path` and `stream` deliveries itself, opening a stream for only the bytes asked for, and a redirect target
+serves its own.
 
 `S3Storage` redirects by default. Shorten the expiry, or stream instead:
 

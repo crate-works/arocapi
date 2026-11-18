@@ -6,7 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { mockReset } from 'vitest-mock-extended';
 import type { File } from '../generated/prisma/client.js';
-import type { ContentDelivery, ContentSource, MetadataSource } from '../storage/backend.js';
+import type { ByteRange, ContentDelivery, ContentSource, MetadataSource } from '../storage/backend.js';
 import { prisma } from '../test/helpers/fastify.js';
 import { comparableHeaders, getAndHead } from '../test/helpers/getAndHead.js';
 import { mediaOnly, protectiveHeaders, sandboxed, unprotected } from '../test/helpers/protectiveHeaders.js';
@@ -133,13 +133,222 @@ describe('File Route', () => {
 
     it('destroys the opened stream when its headers cannot be set', async () => {
       const stream = Readable.from([bytes]);
-      content.mockReturnValue({ type: 'stream', open: () => stream, contentType: 'audio/wav' } as ContentDelivery);
+      content.mockReturnValue({
+        type: 'stream',
+        open: () => stream,
+        contentType: 'audio/wav',
+      } as unknown as ContentDelivery);
 
       const response = await app.inject({ method: 'GET', url });
 
       expect(response.statusCode).toBe(500);
       expect(response.headers['content-disposition']).toBeUndefined();
       expect(stream.destroyed).toBe(true);
+    });
+  });
+
+  describe('range and conditional requests', () => {
+    const etag = '"abc"';
+    const open = vi.fn((range: ByteRange) => Readable.from([bytes.slice(range.start, range.end + 1)]));
+    const deliveries = {
+      stream: (): ContentDelivery => ({
+        type: 'stream',
+        open,
+        contentType: 'audio/wav',
+        contentLength: bytes.length,
+        etag,
+        lastModified,
+      }),
+      path: (): ContentDelivery => ({
+        type: 'path',
+        path: join(dir, 'test.wav'),
+        contentType: 'audio/wav',
+        contentLength: bytes.length,
+        etag,
+        lastModified,
+      }),
+    };
+    const send = (headers: Record<string, string>, method: 'GET' | 'HEAD' = 'GET') =>
+      app.inject({ method, url, headers });
+
+    beforeEach(() => {
+      open.mockClear();
+    });
+
+    describe.each(['stream', 'path'] as const)('%s delivery', (type) => {
+      beforeEach(() => {
+        content.mockImplementation(deliveries[type]);
+      });
+
+      it('serves a range with 206 and the delivery headers', async () => {
+        const response = await send({ range: 'bytes=5-9' });
+
+        expect(response.statusCode).toBe(206);
+        expect(response.body).toBe('audio');
+        expect(response.headers['content-range']).toBe(`bytes 5-9/${bytes.length}`);
+        expect(response.headers['content-length']).toBe('5');
+        expect(response.headers['accept-ranges']).toBe('bytes');
+        expect(response.headers['content-type']).toBe('audio/wav');
+        expect(response.headers['content-disposition']).toBe('inline; filename=test.wav');
+        expect(response.headers.etag).toBe(etag);
+        expect(response.headers['last-modified']).toBe('Wed, 01 Jan 2025 00:00:00 GMT');
+        expect(protectiveHeaders(response)).toEqual(mediaOnly);
+      });
+
+      it('serves the last bytes for a suffix range', async () => {
+        const response = await send({ range: 'bytes=-5' });
+
+        expect(response.statusCode).toBe(206);
+        expect(response.body).toBe('bytes');
+        expect(response.headers['content-range']).toBe(`bytes 11-15/${bytes.length}`);
+      });
+
+      it.each([`bytes=${bytes.length}-`, 'bytes=-0'])('refuses %s with 416', async (range) => {
+        const response = await send({ range });
+
+        expect(response.statusCode).toBe(416);
+        expect(response.headers['content-range']).toBe(`bytes */${bytes.length}`);
+        expect(response.json<StandardErrorResponse>().error.code).toBe('RANGE_NOT_SATISFIABLE');
+        expect(open).not.toHaveBeenCalled();
+      });
+
+      it.each(['', 'bytes=0-1,5-9', 'items=0-9', 'bytes=9-0'])(
+        'sends the whole Content for the Range %j, saying ranges are accepted',
+        async (range) => {
+          const response = await send(range ? { range } : {});
+
+          expect(response.statusCode).toBe(200);
+          expect(response.body).toBe(bytes);
+          expect(response.headers['accept-ranges']).toBe('bytes');
+        },
+      );
+
+      it('sends the whole Content when If-Range names another version', async () => {
+        const response = await send({ range: 'bytes=0-3', 'if-range': '"old"' });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.body).toBe(bytes);
+      });
+
+      it('sends the whole Content when If-Range is a weak ETag', async () => {
+        content.mockImplementation(() => ({ ...deliveries[type](), etag: 'W/"abc"' }));
+
+        const response = await send({ range: 'bytes=0-3', 'if-range': 'W/"abc"' });
+
+        expect(response.statusCode).toBe(200);
+      });
+
+      it('serves the range when If-Range is the exact Last-Modified', async () => {
+        const response = await send({ range: 'bytes=0-3', 'if-range': 'Wed, 01 Jan 2025 00:00:00 GMT' });
+
+        expect(response.statusCode).toBe(206);
+        expect(response.body).toBe('RIFF');
+      });
+
+      it('sends the whole Content when If-Range is a Last-Modified under a second old', async () => {
+        const now = new Date();
+        content.mockImplementation(() => ({ ...deliveries[type](), etag: undefined, lastModified: now }));
+
+        const response = await send({ range: 'bytes=0-3', 'if-range': now.toUTCString() });
+
+        expect(response.statusCode).toBe(200);
+      });
+
+      it('serves the range when If-Range names this version', async () => {
+        const response = await send({ range: 'bytes=0-3', 'if-range': etag });
+
+        expect(response.statusCode).toBe(206);
+        expect(response.body).toBe('RIFF');
+      });
+
+      it('answers HEAD with Range with the whole Content-Length', async () => {
+        const response = await send({ range: 'bytes=0-3' }, 'HEAD');
+
+        expect(response.statusCode).toBe(200);
+        expect(response.headers['content-length']).toBe(String(bytes.length));
+        expect(response.headers['accept-ranges']).toBe('bytes');
+        expect(response.headers['content-range']).toBeUndefined();
+      });
+
+      it.each(['GET', 'HEAD'] as const)('answers %s with 304 when the client has this version', async (method) => {
+        const response = await send({ 'if-none-match': etag, range: 'bytes=0-3' }, method);
+
+        expect(response.statusCode).toBe(304);
+        expect(response.body).toBe('');
+        expect(response.headers.etag).toBe(etag);
+        expect(response.headers['last-modified']).toBe('Wed, 01 Jan 2025 00:00:00 GMT');
+        expect(open).not.toHaveBeenCalled();
+      });
+
+      it('answers 304 when the Content is unmodified since the given date', async () => {
+        const response = await send({ 'if-modified-since': 'Thu, 02 Jan 2025 00:00:00 GMT' });
+
+        expect(response.statusCode).toBe(304);
+      });
+    });
+
+    it('answers 304 from Last-Modified alone for a delivery without an ETag', async () => {
+      content.mockImplementation(() => ({ ...deliveries.stream(), etag: undefined }));
+
+      const response = await send({ 'if-modified-since': 'Wed, 01 Jan 2025 00:00:00 GMT' });
+
+      expect(response.statusCode).toBe(304);
+      expect(response.headers.etag).toBeUndefined();
+      expect(response.headers['last-modified']).toBe('Wed, 01 Jan 2025 00:00:00 GMT');
+    });
+
+    it('opens the stream with the requested range, or the whole Content without one', async () => {
+      content.mockImplementation(deliveries.stream);
+
+      await send({ range: 'bytes=5-9' });
+      await send({});
+
+      expect(open.mock.calls).toEqual([[{ start: 5, end: 9 }], [{ start: 0, end: bytes.length - 1 }]]);
+    });
+
+    it('sends empty Content without opening it, and refuses any range of it', async () => {
+      content.mockImplementation(() => ({ ...deliveries.stream(), contentLength: 0 }));
+
+      const whole = await send({});
+      const ranged = await send({ range: 'bytes=0-' });
+
+      expect(whole.statusCode).toBe(200);
+      expect(whole.body).toBe('');
+      expect(ranged.statusCode).toBe(416);
+      expect(ranged.headers['content-range']).toBe('bytes */0');
+      expect(open).not.toHaveBeenCalled();
+    });
+
+    it.each(['', '?noRedirect=true'])('leaves a redirect alone when the query is %j', async (query) => {
+      content.mockResolvedValue({ type: 'redirect', url: 'https://storage.example.com/test.wav' });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `${url}${query}`,
+        headers: { range: 'bytes=0-3', 'if-none-match': '*' },
+      });
+
+      expect(response.statusCode).toBe(query ? 200 : 302);
+      expect(response.headers['accept-ranges']).toBeUndefined();
+      expect(response.headers['content-range']).toBeUndefined();
+    });
+
+    it('answers a hidden file with its hidden response, whatever the headers', async () => {
+      prisma.file.findFirst.mockResolvedValue(null);
+
+      const response = await send({ range: `bytes=${bytes.length}-`, 'if-none-match': '*' });
+
+      expect(response.statusCode).toBe(404);
+      expect(content).not.toHaveBeenCalled();
+    });
+
+    it('refuses denied Content, whatever the headers', async () => {
+      built.access.mockReturnValue({ metadata: true, content: false });
+
+      const response = await send({ range: `bytes=${bytes.length}-`, 'if-none-match': '*' });
+
+      expect(response.statusCode).toBe(403);
+      expect(content).not.toHaveBeenCalled();
     });
   });
 

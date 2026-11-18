@@ -80,7 +80,8 @@ Record is always returned.
 
 Response: the RO-Crate metadata from the storage backend's [`metadata`](/configuration/storage/#the-halves) half, as
 `application/ld+json`, or a 302 for a `redirect` delivery. `HEAD` answers with the headers `GET` would send, and a
-302 for a `redirect`. No query parameters.
+302 for a `redirect`. A client holding the current version gets a 304; see
+[conditional requests](/configuration/storage/#range-and-conditional-requests). No query parameters.
 
 ## `GET /files`
 
@@ -99,8 +100,10 @@ A file is Visible when its file entity is. Its `access` is its file entity's [ac
 ## `GET /file/:id`
 
 Response: the Content from the storage backend's [`content`](/configuration/storage/#the-halves) half, or a 302 for
-a `redirect` delivery. `HEAD` answers with the headers `GET` would send, and a 302 for a `redirect`. Both take
-`disposition`, `filename` and `noRedirect`; see [query parameters](/configuration/storage/#query-parameters).
+a `redirect` delivery. A single `bytes` range gets a 206, or a 416 when none of it exists, and a client holding the
+current version gets a 304; see [range and conditional requests](/configuration/storage/#range-and-conditional-requests).
+`HEAD` ignores `Range` and answers with the headers a whole-file `GET` would send, and a 302 for a `redirect`. Both
+take `disposition`, `filename` and `noRedirect`; see [query parameters](/configuration/storage/#query-parameters).
 
 ## `POST /search`
 

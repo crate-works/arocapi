@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
@@ -1081,12 +1081,16 @@ describe('Storage backends', () => {
       await rm(root, { recursive: true });
     });
 
+    const storedAt = new Date('2025-01-01T00:00:00Z');
+
     describeStorageContract('DirectoryStorage', {
       create: (locate) => DirectoryStorage({ root, locate }),
       prepare: async (items) => {
         for (const { path, body } of items) {
           await mkdir(dirname(join(root, path)), { recursive: true });
           await writeFile(join(root, path), body);
+          // Old enough for If-Range to trust its Last-Modified
+          await utimes(join(root, path), storedAt, storedAt);
         }
       },
       meta: (path) => ({ storagePath: path }),

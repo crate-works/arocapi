@@ -68,27 +68,44 @@ const createRows = async (rows: Row[]) => {
 };
 
 /** What a client relies on from the server a redirect sends it to; the rest varies per response */
-const followedHeaders = ['content-type', 'content-length', 'content-disposition', 'etag', 'last-modified'];
+const followedHeaders = [
+  'content-type',
+  'content-length',
+  'content-disposition',
+  'content-range',
+  'etag',
+  'last-modified',
+];
 
 /**
  * What the client ends up with: arocapi's response, or the response of the server it redirects to
  */
-const serve = async (instance: FastifyInstance, method: 'GET' | 'HEAD', url: string) => {
-  const reply = await instance.inject({ method, url });
+const serve = async (
+  instance: FastifyInstance,
+  method: 'GET' | 'HEAD',
+  url: string,
+  headers: Record<string, string>,
+) => {
+  const reply = await instance.inject({ method, url, headers });
   if (reply.statusCode !== 302) {
-    return { statusCode: reply.statusCode, body: reply.body, headers: reply.headers };
+    return { statusCode: reply.statusCode, body: reply.body, headers: reply.headers, redirected: false };
   }
 
   // A presigned URL is signed for GET only, so HEAD's redirect is followed with GET and its body dropped
-  const response = await fetch(String(reply.headers.location));
+  const response = await fetch(String(reply.headers.location), { headers });
   const body = await response.text();
-  const headers = followedHeaders.flatMap((header) => {
+  const followed = followedHeaders.flatMap((header) => {
     const value = response.headers.get(header);
 
     return value === null ? [] : [[header, value]];
   });
 
-  return { statusCode: response.status, body: method === 'HEAD' ? '' : body, headers: Object.fromEntries(headers) };
+  return {
+    statusCode: response.status,
+    body: method === 'HEAD' ? '' : body,
+    headers: Object.fromEntries(followed),
+    redirected: true,
+  };
 };
 
 const entityUrl = (name: string) => `/entity/${encodeURIComponent(id(name))}/metadata`;
@@ -125,7 +142,8 @@ const useApp = (storage: () => MaybePromise<StorageBackend>) => {
     await app.close();
   });
 
-  return (url: string) => getAndHead((method) => serve(app, method, url));
+  return (url: string, headers: Record<string, string> = {}) =>
+    getAndHead((method) => serve(app, method, url, headers));
 };
 
 /**
@@ -160,6 +178,16 @@ export const describeMetadataContract = <Key = string>(name: string, harness: Me
       expect(head.statusCode).toBe(200);
       expect(head.body).toBe('');
       expect(comparableHeaders(head.headers)).toEqual(comparableHeaders(get.headers));
+    });
+
+    it('answers 304 to a client holding the current Metadata', async () => {
+      const { get: first } = await request(entityUrl('collection'));
+
+      const { get, head } = await request(entityUrl('collection'), { 'if-none-match': String(first.headers.etag) });
+
+      expect(get.statusCode).toBe(304);
+      expect(get.body).toBe('');
+      expect(head.statusCode).toBe(304);
     });
 
     it.each(['missing-crate', 'no-key'])('answers 404 for %s', async (name) => {
@@ -252,6 +280,66 @@ const describeContentContract = <Key = string>(name: string, harness: ContentCon
       expect(head.statusCode).toBe(200);
       expect(head.body).toBe('');
       expect(comparableHeaders(head.headers)).toEqual(comparableHeaders(get.headers));
+    });
+
+    it.each([
+      ['an explicit range', 'bytes=5-12', 'greeting', 5],
+      ['an open-ended range', 'bytes=14-', 'bytes', 14],
+      ['a suffix range', 'bytes=-5', 'bytes', 14],
+      ['a range past the end', 'bytes=14-99', 'bytes', 14],
+    ])('serves %s with 206', async (_name, range, body, start) => {
+      const size = Buffer.byteLength(wavItem.body);
+      const { get } = await request(fileUrl('greeting.wav'), { range });
+
+      expect(get.statusCode).toBe(206);
+      expect(get.body).toBe(body);
+      expect(get.headers['content-range']).toBe(`bytes ${start}-${start + body.length - 1}/${size}`);
+      expect(get.headers['content-length']).toBe(String(body.length));
+    });
+
+    it('refuses a range that starts past the end with 416', async () => {
+      const { get } = await request(fileUrl('greeting.wav'), { range: 'bytes=99-' });
+
+      expect(get.statusCode).toBe(416);
+      // A redirect target shapes its own 416
+      if (!get.redirected) {
+        expect(get.headers['content-range']).toBe(`bytes */${Buffer.byteLength(wavItem.body)}`);
+      }
+    });
+
+    it('answers 304 to a client holding the current Content', async () => {
+      const { get: first } = await request(fileUrl('greeting.wav'));
+
+      const { get, head } = await request(fileUrl('greeting.wav'), { 'if-none-match': String(first.headers.etag) });
+
+      expect(get.statusCode).toBe(304);
+      expect(get.body).toBe('');
+      expect(head.statusCode).toBe(304);
+    });
+
+    it('answers 304 to a client whose copy is as new as the Last-Modified', async () => {
+      const { get: first } = await request(fileUrl('greeting.wav'));
+
+      const { get } = await request(fileUrl('greeting.wav'), {
+        'if-modified-since': String(first.headers['last-modified']),
+      });
+
+      // Revalidating a redirect target is between the client and that target
+      if (!get.redirected) {
+        expect(get.statusCode).toBe(304);
+      }
+    });
+
+    it('resumes from the stored validators with If-Range', async () => {
+      const { get: first } = await request(fileUrl('greeting.wav'));
+      const validator = String(first.headers.etag).startsWith('W/')
+        ? String(first.headers['last-modified'])
+        : String(first.headers.etag);
+
+      const { get } = await request(fileUrl('greeting.wav'), { range: 'bytes=14-', 'if-range': validator });
+
+      expect(get.statusCode).toBe(206);
+      expect(get.body).toBe('bytes');
     });
 
     it('takes Content-Type from File.mediaType, not the stored name', async () => {

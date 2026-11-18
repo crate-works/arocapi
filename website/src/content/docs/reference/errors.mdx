@@ -31,7 +31,7 @@ Every error from arocapi's routes has the same shape, `StandardErrorResponse`:
 | `FORBIDDEN`             | 403    | A Denied authenticated request, or any Denied request without `isAuthenticated`. |
 | `NOT_FOUND`             | 404    | A missing or Hidden entity or file, a storage backend returning `null`, or an unknown path under arocapi's `prefix`. |
 | `CONFLICT`              | 409    | Your own exposed errors with that status.                             |
-| `RANGE_NOT_SATISFIABLE` | 416    | Your own exposed errors with that status.                             |
+| `RANGE_NOT_SATISFIABLE` | 416    | `GET /file/:id` with a `Range` none of which exists, with `Content-Range: bytes */<size>`. |
 | `RATE_LIMIT_EXCEEDED`   | 429    | Your own exposed errors with that status.                             |
 | `INTERNAL_ERROR`        | 500    | Anything else. The message is generic; the real error is logged.      |
 | `INVALID_ENTITY_TYPE`   | none   | Exported for your use; arocapi doesn't return it.                     |

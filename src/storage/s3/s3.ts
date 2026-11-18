@@ -47,8 +47,10 @@ export const S3Storage = ({
       etag: head.ETag,
       lastModified: head.LastModified,
       // IfMatch keeps GET to the version HEAD described; a newer one fails the request
-      open: async () => {
-        const object = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key, IfMatch: head.ETag }));
+      open: async ({ start, end }) => {
+        const object = await client.send(
+          new GetObjectCommand({ Bucket: bucket, Key: key, IfMatch: head.ETag, Range: `bytes=${start}-${end}` }),
+        );
 
         return object.Body as Readable;
       },
