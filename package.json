@@ -31,7 +31,7 @@
     "@biomejs/biome": "^2.6.3",
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
-    "@ocfl/ocfl-fs": "^1.0.0-beta.59",
+    "@ocfl/ocfl-fs": "^1.0.0-beta.67",
     "@opensearch-project/opensearch": "^3.9.0",
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
@@ -59,7 +59,7 @@
   "peerDependencies": {
     "@aws-sdk/client-s3": "^3",
     "@aws-sdk/s3-request-presigner": "^3",
-    "@ocfl/ocfl-fs": "^1.0.0-beta.59",
+    "@ocfl/ocfl-fs": "^1.0.0-beta.67",
     "@opensearch-project/opensearch": "^3.9.0",
     "@prisma/client": "^7.10.0",
     "fastify": "^5.12.7"

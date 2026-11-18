@@ -195,8 +195,8 @@ importers:
         specifier: ^21.2.4
         version: 21.2.4
       '@ocfl/ocfl-fs':
-        specifier: ^1.0.0-beta.59
-        version: 1.0.0-beta.59
+        specifier: ^1.0.0-beta.67
+        version: 1.0.0-beta.67
       '@opensearch-project/opensearch':
         specifier: ^3.9.0
         version: 3.9.0(supports-color@10.2.2)
@@ -1204,8 +1204,8 @@ packages:
       '@emnapi/core': ^1.7.1 || ^2.0.0-alpha.4
       '@emnapi/runtime': ^1.7.1 || ^2.0.0-alpha.4
 
-  '@ocfl/ocfl-fs@1.0.0-beta.59':
-    resolution: {integrity: sha512-CoF8xJ6xz7rlDLahNI+VOMp2OMcvUmFjHUS/7GZ72idVMx2Tr8QFet4fuYNrUqWN6w1tqAFbWc6GrFOoM8ItWA==}
+  '@ocfl/ocfl-fs@1.0.0-beta.67':
+    resolution: {integrity: sha512-aSxXu1hLzVMnbu+oCZ5g2ogp0gSNkrNw23lKf9QpGrYQaqUSxxoKfur0IYJ+U/fdr0SRtpospvutlaROb1RWLA==}
     engines: {node: '>=22.12.0'}
 
   '@octokit/auth-token@6.0.0':
@@ -6215,7 +6215,7 @@ snapshots:
       '@tybys/wasm-util': 0.10.4
     optional: true
 
-  '@ocfl/ocfl-fs@1.0.0-beta.59': {}
+  '@ocfl/ocfl-fs@1.0.0-beta.67': {}
 
   '@octokit/auth-token@6.0.0': {}
 

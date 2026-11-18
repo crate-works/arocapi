@@ -1,4 +1,4 @@
-import { openStorageRoot } from '@ocfl/ocfl-fs';
+import { type OcflErrorCode, openStorageRoot } from '@ocfl/ocfl-fs';
 import type { Entity, File } from '../../generated/prisma/client.js';
 import type { OcflLocation, OcflStorageMeta, StorageBackend, StorageLocate, StreamDelivery } from '../backend.js';
 import { locator, metaString, safeKey } from '../location.js';
@@ -13,7 +13,7 @@ export type OcflStorageOptions = {
 
 const METADATA_PATH = 'ro-crate-metadata.json';
 
-const MISSING: ReadonlySet<string> = new Set(['OBJECT_NOT_FOUND']);
+const MISSING: ReadonlySet<string> = new Set<OcflErrorCode>(['OBJECT_NOT_FOUND']);
 
 const metaKey = (row: Entity | File, key: keyof OcflStorageMeta) => metaString<OcflStorageMeta>(row.meta, row.id, key);
 
@@ -37,7 +37,8 @@ const safeLocation = ({ path }: OcflLocation, id: string) => safeKey(path, id);
 
 /**
  * Serve Metadata and Content from the head version of objects in an OCFL storage root on local disk
- * Throws an `OcflError` when `root` isn't a storage root, or uses a storage layout @ocfl/ocfl-fs doesn't implement
+ * Throws an `OcflError` when `root` isn't a storage root, or doesn't declare a storage layout @ocfl/ocfl-fs implements
+ * @see https://language-research-technology.github.io/ocfl-js/guides/errors/
  */
 export const OcflStorage = async ({ root, locate = {} }: OcflStorageOptions): Promise<StorageBackend> => {
   const storageRoot = await openStorageRoot(root);

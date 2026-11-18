@@ -156,8 +156,8 @@ not preclude it.
   file's `modifiedAt`, when the version in which the path took its current
   content was committed. `open()` is `file.stream()`, which opens the content
   before it resolves, so missing, unreadable or non-regular content fails
-  before the headers. `OBJECT_NOT_FOUND` is `null`; every other `OcflError`,
-  including an id the layout can't map, throws.
+  before the headers. `OBJECT_NOT_FOUND`, which includes an id the layout
+  can't place, is `null`; every other `OcflError` throws.
 - **`EntityMetaMetadata({ key? })`** is a Metadata half only. It returns the
   value at `Entity.meta[key]` (default `rocrate`) as a `json` delivery.
 
@@ -170,7 +170,7 @@ not preclude it.
   The root exports the plugin and the contract types (`StorageBackend`, the
   deliveries, the `meta` and OCFL location shapes).
 - `@aws-sdk/client-s3` and `@aws-sdk/s3-request-presigner` (`^3`) and
-  `@ocfl/ocfl-fs` (`^1.0.0-beta.59`) are optional peer
+  `@ocfl/ocfl-fs` (`^1.0.0-beta.67`) are optional peer
   dependencies, imported statically by their subpaths. No direct dependency
   is added.
 - The OCFL backend reads through `@ocfl/ocfl-fs` rather than an in-house

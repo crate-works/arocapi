@@ -13,4 +13,4 @@ allowBuilds:
 packages:
   - website
 minimumReleaseAgeExclude:
-  - "@ocfl/ocfl-fs@1.0.0-beta.59"
+  - "@ocfl/ocfl-fs@1.0.0-beta.67"
