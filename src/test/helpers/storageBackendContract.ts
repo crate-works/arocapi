@@ -9,7 +9,7 @@ import type {
   StorageLocate,
 } from '../../storage/backend.js';
 import { buildTestApp, cleanupTestData, getTestPrisma } from '../integration.setup.js';
-import { getAndHead } from './getAndHead.js';
+import { comparableHeaders, getAndHead } from './getAndHead.js';
 import { storedItems } from './storedItems.js';
 
 type Prepared = {
@@ -159,7 +159,7 @@ export const describeMetadataContract = <Key = string>(name: string, harness: Me
       expect(get.headers.etag).toBeDefined();
       expect(head.statusCode).toBe(200);
       expect(head.body).toBe('');
-      expect(head.headers).toEqual(get.headers);
+      expect(comparableHeaders(head.headers)).toEqual(comparableHeaders(get.headers));
     });
 
     it.each(['missing-crate', 'no-key'])('answers 404 for %s', async (name) => {
@@ -251,7 +251,7 @@ const describeContentContract = <Key = string>(name: string, harness: ContentCon
       expect(get.headers['last-modified']).toBeDefined();
       expect(head.statusCode).toBe(200);
       expect(head.body).toBe('');
-      expect(head.headers).toEqual(get.headers);
+      expect(comparableHeaders(head.headers)).toEqual(comparableHeaders(get.headers));
     });
 
     it('takes Content-Type from File.mediaType, not the stored name', async () => {

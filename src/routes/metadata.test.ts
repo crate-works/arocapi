@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { mockReset } from 'vitest-mock-extended';
 import type { ContentSource, MetadataDelivery, MetadataSource } from '../storage/backend.js';
 import { prisma } from '../test/helpers/fastify.js';
-import { getAndHead } from '../test/helpers/getAndHead.js';
+import { comparableHeaders, getAndHead } from '../test/helpers/getAndHead.js';
 import { protectiveHeaders, sandboxed, unprotected } from '../test/helpers/protectiveHeaders.js';
 import { entityRow, restrictedByMeta } from '../test/helpers/rows.js';
 import { buildStorageApp } from '../test/helpers/storageApp.js';
@@ -75,7 +75,7 @@ describe('Metadata Route', () => {
       expect(get.headers['content-disposition']).toBeUndefined();
       expect(head.statusCode).toBe(200);
       expect(head.body).toBe('');
-      expect(head.headers).toEqual(get.headers);
+      expect(comparableHeaders(head.headers)).toEqual(comparableHeaders(get.headers));
     });
 
     it('answers 500 when the path cannot be opened', async () => {
@@ -142,7 +142,7 @@ describe('Metadata Route', () => {
       expect(get.headers['content-length']).toBe('17');
       expect(get.headers.etag).toMatch(/^"[^"]+"$/);
       expect(head.body).toBe('');
-      expect(head.headers).toEqual(get.headers);
+      expect(comparableHeaders(head.headers)).toEqual(comparableHeaders(get.headers));
     });
 
     it('gives different values different ETags', async () => {

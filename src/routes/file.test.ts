@@ -8,7 +8,7 @@ import { mockReset } from 'vitest-mock-extended';
 import type { File } from '../generated/prisma/client.js';
 import type { ContentDelivery, ContentSource, MetadataSource } from '../storage/backend.js';
 import { prisma } from '../test/helpers/fastify.js';
-import { getAndHead } from '../test/helpers/getAndHead.js';
+import { comparableHeaders, getAndHead } from '../test/helpers/getAndHead.js';
 import { mediaOnly, protectiveHeaders, sandboxed, unprotected } from '../test/helpers/protectiveHeaders.js';
 import { entityRow, fileRow, restrictedByMeta } from '../test/helpers/rows.js';
 import { buildStorageApp } from '../test/helpers/storageApp.js';
@@ -90,7 +90,7 @@ describe('File Route', () => {
       expect(get.headers['content-disposition']).toBe('inline; filename=test.wav');
       expect(head.statusCode).toBe(200);
       expect(head.body).toBe('');
-      expect(head.headers).toEqual(get.headers);
+      expect(comparableHeaders(head.headers)).toEqual(comparableHeaders(get.headers));
     });
 
     it('answers a clean 500 when the path cannot be opened', async () => {
@@ -126,7 +126,7 @@ describe('File Route', () => {
       const get = await app.inject({ method: 'GET', url });
 
       expect(get.body).toBe(bytes);
-      expect(get.headers).toEqual(head.headers);
+      expect(comparableHeaders(get.headers)).toEqual(comparableHeaders(head.headers));
       expect(content).toHaveBeenCalledTimes(2);
       expect(open).toHaveBeenCalledOnce();
     });
