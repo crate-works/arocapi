@@ -224,7 +224,7 @@ describe('authoriseFiles', () => {
     entity: dbEntity(id),
   });
 
-  it("should attach only the Content access of each file's entity", async () => {
+  it("should attach each file entity's access", async () => {
     const access: AccessFunction = (entity) =>
       entity.id === 'http://example.com/restricted.wav'
         ? {
@@ -247,14 +247,19 @@ describe('authoriseFiles', () => {
         filename: 'audio.wav',
         mediaType: 'audio/wav',
         size: 2048,
-        access: { content: false, contentAuthorizationUrl: 'https://example.com/request-content' },
+        access: {
+          metadata: false,
+          content: false,
+          metadataAuthorizationUrl: 'https://example.com/request-metadata',
+          contentAuthorizationUrl: 'https://example.com/request-content',
+        },
       },
       {
         id: 'http://example.com/open.wav',
         filename: 'audio.wav',
         mediaType: 'audio/wav',
         size: 2048,
-        access: { content: true },
+        access: { metadata: false, content: true },
       },
     ]);
   });

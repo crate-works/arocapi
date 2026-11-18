@@ -73,7 +73,7 @@ Record routes don't enforce access. A Denied entity is still listed, with `acces
 `false`.
 
 Files follow the same steps with `fileTransformers`: the access function is called with the file's entity, and the
-file's `access` keeps only `content` and `contentAuthorizationUrl`. On `/search`, arocapi adds the backend's `searchExtra`
+file's `access` is its file entity's access. On `/search`, arocapi adds the backend's `searchExtra`
 (such as the score) after your transformers have run.
 
 Transformers can rely on `access` being present:

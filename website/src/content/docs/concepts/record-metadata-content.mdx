@@ -32,8 +32,8 @@ transformers run after `access` is attached and can rely on it:
 
 <Code code={recordMetadataContentTransformer} lang="ts" />
 
-A file in `GET /files` has a smaller Record: id, filename, media type and size. Its `access` holds only `content`,
-taken from the file's own entity.
+A file in `GET /files` has a smaller Record: id, filename, media type and size. Its `access` is its file entity's
+access.
 
 ## Metadata
 
