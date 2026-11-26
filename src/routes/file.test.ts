@@ -456,6 +456,118 @@ describe('File Route', () => {
     });
   });
 
+  describe('Cache-Control', () => {
+    const revalidate = 'private, no-cache';
+    const stream = (): ContentDelivery => ({
+      type: 'stream',
+      open: (range: ByteRange) => Readable.from([bytes.slice(range.start, range.end + 1)]),
+      contentType: 'audio/wav',
+      contentLength: bytes.length,
+      etag: '"abc"',
+    });
+
+    it.each([
+      ['stream', stream],
+      [
+        'path',
+        (): ContentDelivery => ({
+          type: 'path',
+          path: join(dir, 'test.wav'),
+          contentType: 'audio/wav',
+          contentLength: bytes.length,
+        }),
+      ],
+    ])('marks Content from a %s delivery private and revalidated on GET and HEAD', async (_, delivery) => {
+      content.mockImplementation(delivery);
+
+      const { get, head } = await both();
+
+      expect(get.statusCode).toBe(200);
+      expect(get.headers['cache-control']).toBe(revalidate);
+      expect(head.headers['cache-control']).toBe(revalidate);
+    });
+
+    it.each([
+      ['a range', { range: 'bytes=0-3' }, 206],
+      ['the current version', { 'if-none-match': '"abc"' }, 304],
+      ['an unsatisfiable range', { range: `bytes=${bytes.length}-` }, 416],
+    ])('marks the response to %s private and revalidated', async (_, headers, status) => {
+      content.mockImplementation(stream);
+
+      const response = await app.inject({ method: 'GET', url, headers });
+
+      expect(response.statusCode).toBe(status);
+      expect(response.headers['cache-control']).toBe(revalidate);
+    });
+
+    it.each([
+      ['', 302],
+      ['?noRedirect=true', 200],
+    ])(
+      'marks a redirect private and revalidated when the query is %j, as its URL is a credential',
+      async (query, status) => {
+        content.mockResolvedValue({ type: 'redirect', url: 'https://storage.example.com/test.wav' });
+
+        const { get, head } = await both(query);
+
+        for (const response of [get, head]) {
+          expect(response.statusCode).toBe(status);
+          expect(response.headers['cache-control']).toBe(revalidate);
+        }
+      },
+    );
+
+    it('marks refusals and errors private and revalidated', async () => {
+      const get = (query = '') => app.inject({ method: 'GET', url: `${url}${query}` });
+      content.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error('Storage is unreachable'));
+
+      const missing = await get();
+      const failed = await get();
+      const invalid = await get('?disposition=sideways');
+      built.access.mockReturnValue({ metadata: true, content: false });
+      const denied = await get();
+      prisma.file.findFirst.mockResolvedValue(null);
+      const hidden = await get();
+
+      expect([missing, failed, invalid, denied, hidden].map((r) => [r.statusCode, r.headers['cache-control']])).toEqual(
+        [
+          [404, revalidate],
+          [500, revalidate],
+          [400, revalidate],
+          [403, revalidate],
+          [404, revalidate],
+        ],
+      );
+    });
+
+    it('marks a refusal to an anonymous request private and revalidated', async () => {
+      const anonymous = await buildStorageApp({ metadata, content }, undefined, { isAuthenticated: () => false });
+      onTestFinished(() => anonymous.app.close());
+      anonymous.access.mockReturnValue({ metadata: true, content: false });
+
+      const response = await anonymous.app.inject({ method: 'GET', url });
+
+      expect([response.statusCode, response.headers['cache-control']]).toEqual([401, revalidate]);
+    });
+
+    it.each([
+      ['replaces a weaker', 'public, max-age=3600', revalidate],
+      ['keeps a no-store', 'no-store', 'no-store'],
+    ])('%s Cache-Control set by a consumer hook', async (_, set, sent) => {
+      const custom = await buildStorageApp({ metadata, content }, (instance) => {
+        instance.addHook('onRequest', async (_request, reply) => {
+          reply.header('Cache-Control', set);
+        });
+      });
+      onTestFinished(() => custom.app.close());
+      content.mockImplementation(stream);
+
+      const response = await custom.app.inject({ method: 'GET', url });
+
+      expect(response.headers['cache-control']).toBe(sent);
+    });
+  });
+
   it.each([
     ['json', { type: 'json', value: {}, contentType: 'application/json' }],
     ['unknown', { type: 'inline', contentType: 'audio/wav', contentLength: 1 }],

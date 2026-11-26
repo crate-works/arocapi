@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { mockReset } from 'vitest-mock-extended';
 
 import type { Options } from './app.js';
@@ -7,6 +7,7 @@ import app, { AllPublicAccess, AllVisibleEntityFilter, AllVisibleSearchFilter } 
 
 import { fakeSearchBackend } from './test/helpers/fakeSearchBackend.js';
 import { prisma } from './test/helpers/fastify.js';
+import { entityRow } from './test/helpers/rows.js';
 
 describe('Entity Route', () => {
   beforeEach(() => {
@@ -108,6 +109,94 @@ describe('Entity Route', () => {
       await expect(fastify.ready()).resolves.toBeDefined();
 
       await fastify.close();
+    });
+  });
+
+  describe('Cache-Control', () => {
+    const id = 'http://example.com/entity/123';
+
+    const build = async (options: Partial<Options> = {}) => {
+      const fastify = Fastify({ logger: false });
+      await fastify.register(app, { ...requiredOptions(), ...options });
+      onTestFinished(() => fastify.close());
+
+      return fastify;
+    };
+
+    beforeEach(() => {
+      prisma.entity.findFirst.mockResolvedValue(entityRow({ id }));
+      prisma.entity.findMany.mockResolvedValue([]);
+      prisma.entity.count.mockResolvedValue(0);
+      prisma.file.findMany.mockResolvedValue([]);
+      prisma.file.count.mockResolvedValue(0);
+    });
+
+    it.each([
+      ['a Record', 'GET', `/entity/${encodeURIComponent(id)}`, undefined, 200],
+      ['an invalid entity id', 'GET', '/entity/invalid-id', undefined, 400],
+      ['a listing of entities', 'GET', '/entities', undefined, 200],
+      ['an invalid listing of entities', 'GET', '/entities?limit=0', undefined, 400],
+      ['a listing of files', 'GET', '/files', undefined, 200],
+      ['an invalid listing of files', 'GET', '/files?limit=2000', undefined, 400],
+      ['a search', 'POST', '/search', { query: 'test' }, 200],
+      ['an invalid search', 'POST', '/search', { sort: 'createdAt' }, 400],
+    ] as const)('marks %s private', async (_, method, url, payload, status) => {
+      const fastify = await build();
+
+      const response = await fastify.inject({ method, url, payload });
+
+      expect([response.statusCode, response.headers['cache-control']]).toEqual([status, 'private']);
+    });
+
+    it('marks an entity that is not visible private', async () => {
+      prisma.entity.findFirst.mockResolvedValue(null);
+      const fastify = await build();
+
+      const response = await fastify.inject({ method: 'GET', url: `/entity/${encodeURIComponent(id)}` });
+
+      expect([response.statusCode, response.headers['cache-control']]).toEqual([404, 'private']);
+    });
+
+    it('marks an unknown path under its prefix private', async () => {
+      const fastify = Fastify({ logger: false });
+      await fastify.register(app, { ...requiredOptions(), prefix: '/api' } as Options);
+      onTestFinished(() => fastify.close());
+
+      const response = await fastify.inject({ method: 'GET', url: '/api/unknown' });
+
+      expect([response.statusCode, response.headers['cache-control']]).toEqual([404, 'private']);
+    });
+
+    it("leaves an app's own Cache-Control on /capabilities alone", async () => {
+      const fastify = Fastify({ logger: false });
+      fastify.addHook('onRequest', async (_request, reply) => {
+        reply.header('Cache-Control', 'public, max-age=60');
+      });
+      await fastify.register(app, requiredOptions());
+      onTestFinished(() => fastify.close());
+
+      const response = await fastify.inject({ method: 'GET', url: '/capabilities' });
+
+      expect(response.headers['cache-control']).toBe('public, max-age=60');
+    });
+
+    it("leaves the app's own routes alone", async () => {
+      const fastify = Fastify({ logger: false });
+      fastify.get('/health', async () => 'ok');
+      await fastify.register(app, requiredOptions());
+      onTestFinished(() => fastify.close());
+
+      const response = await fastify.inject({ method: 'GET', url: '/health' });
+
+      expect([response.statusCode, response.headers['cache-control']]).toEqual([200, undefined]);
+    });
+
+    it('sends none on /capabilities, as it is the same for every user', async () => {
+      const fastify = await build();
+
+      const response = await fastify.inject({ method: 'GET', url: '/capabilities' });
+
+      expect([response.statusCode, response.headers['cache-control']]).toEqual([200, undefined]);
     });
   });
 });

@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { SearchBackend } from '../search/backend.js';
+import type { CacheControlConfig } from '../utils/headers.js';
 
 const SPEC_VERSION = '0.5.0';
 
@@ -16,7 +17,9 @@ const capabilities: FastifyPluginAsync<CapabilitiesRouteOptions> = async (fastif
     search: opts.search.capabilities,
   };
 
-  fastify.get('/capabilities', async () => document);
+  // The same for every user, so shared caches may store it
+  const config: CacheControlConfig = { cacheControl: null };
+  fastify.get('/capabilities', { config }, async () => document);
 };
 
 export default capabilities;

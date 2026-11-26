@@ -55,6 +55,11 @@ its own.
 - `/files` loads each file entity's Row, `meta` included, so listings carry
   every listed entity's `meta` from the database even when access never
   reads it.
+- Every response but `/capabilities`, errors included, is
+  `Cache-Control: private`, so shared caches never store one user's answer
+  for another; Metadata and Content are also `no-cache`, so each use reruns
+  the access check. A route that doesn't depend on the user opts out. An app's
+  `no-store` is kept; any other value it sets is replaced.
 - Each Metadata or Content request costs one access call. Remote checks
   (e.g. REMS) should be cached per request, as the licence helper does.
 - Serving a redacted RO-Crate to a request without Metadata access is not

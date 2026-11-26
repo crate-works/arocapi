@@ -101,6 +101,9 @@ When you redirect, plan for:
   your own that redirects has to do the same, or the download name is lost.
 - **`?noRedirect=true`.** A client that can't follow a cross-origin redirect can call `/file/:id?noRedirect=true`,
   get `200 { "location": url }`, and fetch the URL itself.
+- **Redirects stay out of shared caches.** The `302` and the `noRedirect` `{ location }` response send
+  `Cache-Control: private, no-cache`, as the presigned URL is itself a credential; see
+  [Access → Caching](/configuration/access/#caching).
 - **`HEAD` on a redirect.** `HEAD /file/:id` answers `302` with the presigned URL, but that URL is signed for `GET`,
   so a client that repeats the `HEAD` against `Location` gets `403` from the bucket. To learn the size without the
   body, follow with a `GET` carrying `Range: bytes=0-0` and read the total from `Content-Range`. See

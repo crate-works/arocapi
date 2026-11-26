@@ -9,6 +9,7 @@ import type { AccessFunction } from '../types/access.js';
 import type { EntityVisibilityFilter } from '../types/visibility.js';
 import { createAccessGuard } from '../utils/access.js';
 import { createNotFoundError } from '../utils/errors.js';
+import { revalidatePrivately } from '../utils/headers.js';
 import { createNotVisibleResponder, type RefusalOptions } from '../utils/visibility.js';
 
 const paramsSchema = z.object({
@@ -47,6 +48,7 @@ const file: FastifyPluginAsync<FileRouteOptions> = async (fastify, opts) => {
   fastify.withTypeProvider<ZodTypeProvider>().route({
     method: ['GET', 'HEAD'],
     url: '/file/:id',
+    config: revalidatePrivately,
     schema: {
       params: paramsSchema,
       querystring: querySchema,

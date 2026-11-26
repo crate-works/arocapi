@@ -78,3 +78,23 @@ anonymous request, so the client can prompt a login, and 403 when logging in won
 Without it, the repository has no logins: no request is Anonymous, so a Denied request always gets 403. It is required
 by [`promptLoginForHidden`](/configuration/visibility/#promptloginforhidden). See
 [Error responses](/reference/errors/#refusals) for every outcome.
+
+## Caching
+
+Every arocapi route but `/capabilities` answers differently per user, so arocapi marks its responses, errors included,
+`Cache-Control: private`. A proxy or CDN between users and the API never stores them. This holds however your app
+authenticates. A shared cache already skips requests that carry `Authorization`, but not ones authenticated by a
+cookie, a client certificate or a network address.
+
+| Route                                           | `Cache-Control`     |
+| ----------------------------------------------- | ------------------- |
+| `/file/:id`, `/entity/:id/metadata`             | `private, no-cache` |
+| `/entity/:id`, `/entities`, `/files`, `/search` | `private`           |
+| `/capabilities`                                 | your app's, if any  |
+
+`no-cache` on Metadata and Content lets a browser keep its copy but makes it revalidate before each use. Access is
+checked again every time, so a user whose licence has ended can't keep reading from the browser cache, and a user
+who still holds it gets a 304 instead of the whole file.
+
+arocapi replaces any `Cache-Control` your own hooks set on the other routes, except `no-store`, which it keeps as the
+stricter choice. Don't strip or weaken the header in a reverse proxy.
