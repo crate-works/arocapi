@@ -1,4 +1,4 @@
-import type { FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { DeliveryHeaders } from '../storage/backend.js';
 
 /** Sandboxes deposited bytes; see docs/adr/0005-library-sandboxes-delivered-bytes.md */
@@ -42,4 +42,25 @@ export const setDeliveryHeaders = (
   if (!isMedia(metadata.contentType)) {
     reply.header('Content-Security-Policy', contentSecurityPolicy);
   }
+};
+
+/** A route's Cache-Control, in its `config`: `private` by default, null to leave the app's own header alone */
+export type CacheControlConfig = { cacheControl?: string | null };
+
+/** For Metadata and Content: revalidating reruns the access check on each use */
+export const revalidatePrivately: CacheControlConfig = { cacheControl: 'private, no-cache' };
+
+/**
+ * Sets each response's Cache-Control from its route's `config`
+ * A `no-store` already on the reply is kept, as it is stricter than any value arocapi sends
+ */
+export const setupCacheControl = (fastify: FastifyInstance) => {
+  fastify.addHook('onSend', async (request, reply, payload) => {
+    const { cacheControl = 'private' } = request.routeOptions.config as CacheControlConfig;
+    if (cacheControl !== null && !String(reply.getHeader('Cache-Control') ?? '').includes('no-store')) {
+      reply.header('Cache-Control', cacheControl);
+    }
+
+    return payload;
+  });
 };

@@ -11,7 +11,11 @@ import { prisma } from './fastify.js';
  * The plugin over the mocked Prisma client, with `storage` and a log of every error it writes
  * `configure` runs on an encapsulated scope, before the plugin is registered in it
  */
-export const buildStorageApp = async (storage: Options['storage'], configure?: (instance: FastifyInstance) => void) => {
+export const buildStorageApp = async (
+  storage: Options['storage'],
+  configure?: (instance: FastifyInstance) => void,
+  { isAuthenticated }: Pick<Options, 'isAuthenticated'> = {},
+) => {
   type LogLine = { err?: { message: string } };
   const errors: LogLine[] = [];
   const stream = new Writable({
@@ -32,6 +36,7 @@ export const buildStorageApp = async (storage: Options['storage'], configure?: (
       entityVisibilityFilter: AllVisibleEntityFilter,
       searchVisibilityFilter: AllVisibleSearchFilter,
       storage,
+      isAuthenticated,
     });
   });
   await instance.ready();

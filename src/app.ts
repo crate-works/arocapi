@@ -16,6 +16,7 @@ import type { IsAuthenticated, RequestContext } from './types/context.js';
 import type { EntityTransformer, FileTransformer } from './types/transformers.js';
 import type { EntityVisibilityFilter } from './types/visibility.js';
 import { notFoundHandler } from './utils/errors.js';
+import { setupCacheControl } from './utils/headers.js';
 import { setupValidation } from './utils/validation.js';
 
 export type {
@@ -189,6 +190,8 @@ const app: FastifyPluginAsync<Options> = async (fastify, options) => {
 
   fastify.register(sensible);
   setupValidation(fastify);
+
+  setupCacheControl(fastify);
 
   // Fastify only gives a plugin its own not-found handler when registered with its own prefix
   const { prefix } = options as { prefix?: string };

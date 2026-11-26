@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { mockReset } from 'vitest-mock-extended';
 import type { ContentSource, MetadataDelivery, MetadataSource } from '../storage/backend.js';
 import { prisma } from '../test/helpers/fastify.js';
@@ -255,6 +255,69 @@ describe('Metadata Route', () => {
       for (const response of responses) {
         expect(protectiveHeaders(response)).toEqual(unprotected);
       }
+    });
+  });
+
+  describe('Cache-Control', () => {
+    const revalidate = 'private, no-cache';
+    const json = (): MetadataDelivery => ({ type: 'json', value: { name: 'a' } });
+
+    it('marks Metadata private and revalidated on GET and HEAD', async () => {
+      metadata.mockImplementation(json);
+
+      const { get, head } = await both();
+
+      expect(get.statusCode).toBe(200);
+      expect(get.headers['cache-control']).toBe(revalidate);
+      expect(head.headers['cache-control']).toBe(revalidate);
+    });
+
+    it('marks a 304 private and revalidated', async () => {
+      metadata.mockImplementation(json);
+      const { etag } = (await app.inject({ method: 'GET', url })).headers;
+
+      const response = await app.inject({ method: 'GET', url, headers: { 'if-none-match': String(etag) } });
+
+      expect(response.statusCode).toBe(304);
+      expect(response.headers['cache-control']).toBe(revalidate);
+    });
+
+    it('marks a redirect, refusals and errors private and revalidated', async () => {
+      const get = () => app.inject({ method: 'GET', url });
+      metadata
+        .mockResolvedValueOnce({ type: 'redirect', url: 'https://storage.example.com/ro-crate-metadata.json' })
+        .mockResolvedValueOnce(null)
+        .mockRejectedValueOnce(new Error('Storage is unreachable'));
+
+      const redirect = await get();
+      const missing = await get();
+      const failed = await get();
+      const invalid = await app.inject({ method: 'GET', url: '/entity/invalid-id/metadata' });
+      built.access.mockReturnValue({ metadata: false, content: true });
+      const denied = await get();
+      prisma.entity.findFirst.mockResolvedValue(null);
+      const hidden = await get();
+
+      expect(
+        [redirect, missing, failed, invalid, denied, hidden].map((r) => [r.statusCode, r.headers['cache-control']]),
+      ).toEqual([
+        [302, revalidate],
+        [404, revalidate],
+        [500, revalidate],
+        [400, revalidate],
+        [403, revalidate],
+        [404, revalidate],
+      ]);
+    });
+
+    it('marks a refusal to an anonymous request private and revalidated', async () => {
+      const anonymous = await buildStorageApp({ metadata, content }, undefined, { isAuthenticated: () => false });
+      onTestFinished(() => anonymous.app.close());
+      anonymous.access.mockReturnValue({ metadata: false, content: true });
+
+      const response = await anonymous.app.inject({ method: 'GET', url });
+
+      expect([response.statusCode, response.headers['cache-control']]).toEqual([401, revalidate]);
     });
   });
 

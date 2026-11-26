@@ -8,6 +8,7 @@ import type { AccessFunction } from '../types/access.js';
 import type { EntityVisibilityFilter } from '../types/visibility.js';
 import { createAccessGuard } from '../utils/access.js';
 import { createNotFoundError } from '../utils/errors.js';
+import { revalidatePrivately } from '../utils/headers.js';
 import { createEntityNotVisibleResponder, type RefusalOptions } from '../utils/visibility.js';
 
 const paramsSchema = z.object({
@@ -31,6 +32,7 @@ const metadataRoute: FastifyPluginAsync<MetadataRouteOptions> = async (fastify, 
   fastify.withTypeProvider<ZodTypeProvider>().route({
     method: ['GET', 'HEAD'],
     url: '/entity/:id/metadata',
+    config: revalidatePrivately,
     schema: {
       params: paramsSchema,
     },
